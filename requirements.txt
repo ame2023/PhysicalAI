@@ -4,7 +4,6 @@ pybullet
 stable-baselines3
 torch
 numpy
-unitree_pybullet @ git+https://github.com/ame2023/unitree_pybullet.git#egg=unitree_pybullet 
 
 hydra-core
 omegaconf
