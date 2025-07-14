@@ -39,10 +39,20 @@ class QuadEnv(gym.Env):
     render : bool, default False
         If True, connect in GUI mode; otherwise DIRECT.
 
+    obs_mode : {"joint", "joint+base", "full"}, default "joint"
+        "full" は base 状態 + 直前トルク τ_{t-1} も含む（49 次元）
+    
+    control_mode : {"position", "torque"}, default "position"
+        "torque" を選ぶと action は正規化トルク指令（±torque_scale_Nm）
+    action_scale_deg : float, default 45
+        "position" 制御時に action ∈ [-1,1] を ±action_scale_deg [deg] へ線形変換
+    torque_scale_Nm : float, default 60
+        "torque" 制御時の最大絶対トルク [Nm]
+
     Notes
     -----
-    * Observation  : 24‑dim vector (12 joint pos + 12 joint vel)
-    * Action       : 12‑dim vector (target joint pos, scaled to ±45°)
+    * Observation  :    dim vector 
+    * Action       : 12‑dim vector (target joint pos or torque)
     * Reward (demo): −‖q‖²   ← replace `_reward()` for real tasks
     """
 
@@ -58,36 +68,53 @@ class QuadEnv(gym.Env):
                  render: bool = False, 
                  max_steps_per_episode: int = 1000, # １エピソードあたりの最大ステップ数
                  fall_height_th: float = 0.25,  # [cm] 胴体の高さが25cm以下で転倒判定
-                 fall_angle_th: float = 0.6,    # [rad]胴体の姿勢が0.6radよりも傾くと転倒判定
-
+                 fall_angle_th: float = 0.6,    # [rad] 胴体の姿勢が0.6radよりも傾くと転倒判定
+                 obs_mode: str = "full",         # 観測データの種類を指定
+                 action_scale_deg: float = 45.0, # [deg] アクションのスケールを指定
+                 control_mode: str = "position", # 制御方法を指定 position or torque
+                 torque_scale_Nm: float = 60.0,  # [Nm] トルクのスケールを指定
+                 reward_mode: str = 'progress',
                  ):
+        
         if model not in self._SUPPORTED_MODELS:
             raise ValueError(f"Unknown model '{model}'. Choose from {list(self._SUPPORTED_MODELS)}")
+        if obs_mode not in {"joint", "joint+base", "full"}:
+            raise ValueError(f"Unknown obs_mode '{obs_mode}'")
+        if control_mode not in {"position", "torque"}:
+            raise ValueError(f"Unknown control_mode '{control_mode}'")
+
         super().__init__()
         self.model_name = model
         self.urdf_relpath = self._SUPPORTED_MODELS[model]
         self.render = render
+        self.num_joint = 12
+
+        # 終了条件の設定
         self.max_steps_per_episode = max_steps_per_episode
         self.fall_height_th = fall_height_th
         self.fall_angle_th = fall_angle_th
         self._ep_step = 0
-
+        
+        # 観測データの指定
+        self.obs_mode = obs_mode
+        self.control_mode = control_mode
+        # 行動出力の指定
+        self._action_scale_rad = np.deg2rad(action_scale_deg)
+        self.torque_scale = torque_scale_Nm
+        # 報酬関数の指定
+        self.reward_mode = reward_mode 
 
         self._cid: Optional[int] = None
         self._robot: Optional[int] = None
         self.dt = 1.0 / 500.0
-
-        # Action/obs space: assuming 12 actuated joints for all three models
-        high_act = np.ones(12, dtype=np.float32)
-        self.action_space = gym.spaces.Box(-high_act, high_act, dtype=np.float32)
-
-        high_obs = np.array([np.pi] * 12 + [np.inf] * 12, dtype=np.float32)
-        self.observation_space = gym.spaces.Box(-high_obs, high_obs, dtype=np.float32)
-
+        self._prev_tau = np.zeros(self.num_joint, dtype=np.float32)
+        
         # data/ path (shared)
         self._data_path = str(
         files("unitree_pybullet").joinpath("data").joinpath("")  # pathlib→str
         )
+        # Gym spaces
+        self._build_spaces()
 
 
 
@@ -122,22 +149,45 @@ class QuadEnv(gym.Env):
             flags=p.URDF_USE_SELF_COLLISION,
             physicsClientId=self._cid,
         )
+        self._prev_tau.fill(0.0)   # ← 直前トルクの初期化
+        self._ep_step = 0          # ← エピソードステップをリセット
         return self._get_obs(), {}
 
     def step(self, action: np.ndarray):
-        self._ep_step += 1
         action = np.clip(action, -1.0, 1.0)
-        targets = np.deg2rad(45.0) * action  # scale to ±45°
-        for j, tgt in enumerate(targets):
-            p.setJointMotorControl2(
-                self._robot,
-                j,
-                p.POSITION_CONTROL,
-                tgt,
-                force=60.0,
-                physicsClientId=self._cid,
+        self._ep_step += 1 
+
+        if self.control_mode == "position":
+            targets = self._action_scale_rad * action
+            for j, tgt in enumerate(targets):
+                p.setJointMotorControl2(
+                    self._robot,
+                    j,
+                    p.POSITION_CONTROL,
+                    targetPosition=float(tgt),
+                    force=self.torque_scale,
+                    physicsClientId=self._cid,
+                )
+            # 実際に発生したトルクを取得（次ステップ用）
+            self._prev_tau = np.array(
+                [p.getJointState(self._robot, j, physicsClientId=self._cid)[3] for j in range(self.num_joint)],
+                dtype=np.float32,
             )
+
+        elif self.control_mode == "torque":
+            taus = self.torque_scale * action
+            for j, tau in enumerate(taus):
+                p.setJointMotorControl2(
+                    self._robot,
+                    j,
+                    p.TORQUE_CONTROL,
+                    force=float(tau),
+                    physicsClientId=self._cid,
+                )
+            self._prev_tau = taus.astype(np.float32)
+
         p.stepSimulation(physicsClientId=self._cid)
+
         obs = self._get_obs()
         reward = self._reward(obs, action)
 
@@ -163,6 +213,19 @@ class QuadEnv(gym.Env):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+    def _build_spaces(self):
+        # 行動空間
+        high_act = np.ones(self.num_joint, dtype=np.float32)
+        self.action_space = gym.spaces.Box(-high_act, high_act, dtype=np.float32)
+
+        # 観測空間
+        if self.obs_mode == "joint": # 関節角度(12)＋関節角速度(12) = 24次元
+            high_obs = np.array([np.pi] * self.num_joint + [np.inf] * self.num_joint, dtype=np.float32)
+        elif self.obs_mode == "joint+base": # 関節角度(12)＋関節角速度(12)＋ベース位置(3)＋姿勢：クォータニオン(4)＋移動速度(3)+姿勢の角速度(3)　＝　37次元
+            high_obs = np.array([np.pi] * self.num_joint + [np.inf] * 25, dtype=np.float32)
+        elif self.obs_mode == "full": # 関節角度(12)＋関節角速度(12)＋ベース位置(3)＋姿勢：クォータニオン(4)＋移動速度(3)+姿勢の角速度(3) + １ステップ前のトルク(12)　＝　49次元
+            high_obs = np.array([np.pi] * self.num_joint + [np.inf] * 37, dtype=np.float32)  # 49 dims
+        self.observation_space = gym.spaces.Box(-high_obs, high_obs, dtype=np.float32)
 
     def _connect_if_needed(self):
         if self._cid is not None and p.isConnected(self._cid):
@@ -172,11 +235,36 @@ class QuadEnv(gym.Env):
         p.setAdditionalSearchPath(self._data_path, physicsClientId=self._cid)
 
     def _get_obs(self) -> np.ndarray:
-        qs = [p.getJointState(self._robot, j, physicsClientId=self._cid)[0] for j in range(12)]
-        qdots = [p.getJointState(self._robot, j, physicsClientId=self._cid)[1] for j in range(12)]
-        return np.array(qs + qdots, dtype=np.float32)
+        qs = [p.getJointState(self._robot, j, physicsClientId=self._cid)[0] for j in range(self.num_joint)]
+        qdots = [p.getJointState(self._robot, j, physicsClientId=self._cid)[1] for j in range(self.num_joint)]
+        obs = qs + qdots
+
+        if self.obs_mode in {"joint+base", "full"}:
+            pos, orn = p.getBasePositionAndOrientation(self._robot, self._cid)
+            lin, ang = p.getBaseVelocity(self._robot, self._cid)
+            obs += list(pos) + list(orn) + list(lin) + list(ang)
+
+        if self.obs_mode == "full":
+            obs += list(self._prev_tau)
+
+        return np.array(obs, dtype=np.float32)
 
     def _reward(self, obs: np.ndarray, action: np.ndarray) -> float:
+        if self.reward_mode == "progress" and self.obs_mode in {"joint+base", "full"}:
+            vx, vy = obs[31], obs[32]
+            target_vx, target_vy = 1.0, 0.0
+            sigma_v = 0.25
+            v_err_sq = (target_vx - vx) ** 2 + (target_vy - vy) ** 2
+            return float(np.exp(-v_err_sq / (2 * sigma_v ** 2)))
+
+        elif self.reward_mode == "EnergeticProgress":
+            """
+            報酬関数の設計
+            """
+            return 0.0  # TODO: 実装
+        
+
+        # fallback: joint-angle penalty
         q = obs[:12]
         return -float(np.sum(q ** 2))
 
@@ -202,11 +290,18 @@ class QuadEnv(gym.Env):
 
 
 # Quick test -----------------------------------------------------------------
-if __name__ == "__main__":
-    env = QuadEnv(model="aliengo", render=True)
-    obs, _ = env.reset()
-    for _ in range(600):  # 1.2 s
-        act = env.action_space.sample()
-        obs, rew, done, *_ = env.step(act)
-    env.close()
+# if __name__ == "__main__":
+#     env = QuadEnv(
+#         model="a1",
+#         render=False,
+#         obs_mode="full",
+#         control_mode="torque",
+#         torque_scale_Nm=40,
+#     )
+#     obs, _ = env.reset()
+#     print("obs dim =", obs.shape)
+#     for _ in range(1000):
+#         a = env.action_space.sample()
+#         env.step(a)
+#     env.close()
 

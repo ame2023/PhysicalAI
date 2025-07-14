@@ -12,7 +12,8 @@ from tqdm import tqdm
 from src.utils import set_seed
 # from src.models import PPO
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import SubprocVecEnv # 並列数(>16)＋並列環境の可視化をしない
+from stable_baselines3.common.vec_env import SubprocVecEnv # 非同期処理，並列数(>16)＋並列環境の可視化をしない
+from stable_baselines3.common.vec_env import DummyVecEnv # 同期処理
 from gymnasium.vector import AsyncVectorEnv # 並列数(<=8)＋並列環境の可視化したい
 from stable_baselines3.common.vec_env import VecMonitor
 from stable_baselines3.common.monitor import Monitor
@@ -80,6 +81,11 @@ def main(cfg:DictConfig):
                       max_steps_per_episode=cfg.max_steps_per_episode,
                       fall_height_th = cfg.fall_height_th,  
                       fall_angle_th = cfg.fall_angle_th,
+                      obs_mode = cfg.obs_mode,        # 観測データの種類を指定
+                      action_scale_deg = cfg.action_scale_deg, # [deg] アクションのスケールを指定
+                      control_mode = cfg.control_mode, # 制御方法を指定 position or torque
+                      torque_scale_Nm = cfg.torque_scale_Nm,  # [Nm] トルクのスケールを指定
+                      reward_mode = cfg.reward_mode,
                       )
         env.reset(seed=cfg.seed)
         env = Monitor(env,

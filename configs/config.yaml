@@ -2,19 +2,24 @@ seed: 1234
 
 unitree_model: 'a1' # {a1, aliengo, laikago}
 policy: 'MlpPolicy'
-total_steps: 6000
+total_steps: 15000
 
 use_wandb: False
 
 # 環境設定
 max_steps_per_episode: 1000
-fall_height_th: 0.25 # [cm] 胴体の高さが25cm以下で転倒判定
-fall_angle_th: 0.6   # [rad] 胴体の角度(roll, pitch)が 0.6rad 以上で転倒判定
+fall_height_th: 0.25     # [cm] 胴体の高さが25cm以下で転倒判定
+fall_angle_th: 0.6       # [rad] 胴体の角度(roll, pitch)が 0.6rad 以上で転倒判定
+obs_mode : "full"       # {"joint", "joint+base", "full"}
+action_scale_deg : 45.0  # [deg] アクションのスケール
+control_mode: "position" # {"position" , "torque"}
+torque_scale_Nm: 60.0    # [Nm] トルクのスケール
+reward_mode: "progress"  # {"progress","EnergeticProgress"}
 
 
 # 環境並列化
-multi_env: False
-num_envs: 2
+multi_env: False #True
+num_envs: 4
 
 
 
