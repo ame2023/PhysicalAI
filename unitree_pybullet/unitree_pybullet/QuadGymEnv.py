@@ -1,8 +1,6 @@
 import os
 from typing import Tuple, Dict, Optional
-
 import numpy as np
-
 try:
     import gymnasium as gym  # Gym >=0.26 (Gymnasium fork)
 except ImportError:  # fallback to classic gym
@@ -135,7 +133,7 @@ class QuadEnv(gym.Env):
     def reset(self, *, seed: Optional[int] = None, options: Optional[Dict] = None):
         super().reset(seed=seed)
         self._connect_if_needed()
-        print(f"[DEBUG] cid={self._cid}  isConnected={p.isConnected(self._cid)}")
+        #print(f"[DEBUG] cid={self._cid}  isConnected={p.isConnected(self._cid)}")
         # --- シミュレーション初期化 -----------------------------------
         p.resetSimulation(physicsClientId=self._cid)
         p.setAdditionalSearchPath(self._data_path, physicsClientId=self._cid)# 再度パスを接続
@@ -149,20 +147,20 @@ class QuadEnv(gym.Env):
         # URDF を絶対パスで読み込む
         plane_path = os.path.join(data_dir, "plane.urdf")
         robot_path = os.path.join(data_dir, self.urdf_relpath)
-        print(f"[DEBUG] plane  = {plane_path}")
-        print(f"[DEBUG] robot  = {robot_path}")
-        print(f"[DEBUG] exists = {os.path.isfile(robot_path)}")
-        # ① 実際に読もうとしているファイルを表示
+        #print(f"[DEBUG] plane  = {plane_path}")
+        #print(f"[DEBUG] robot  = {robot_path}")
+        #print(f"[DEBUG] exists = {os.path.isfile(robot_path)}")
+        # 実際に読もうとしているファイルを表示
         # print("robot_path =", robot_path)
         # print("exists?    =", os.path.isfile(robot_path))
 
-        # ② ファイル頭 200 文字だけ確認
+        # ファイル頭 200 文字だけ確認
         # with open(robot_path, "r", encoding="utf-8") as f:
         #     print(f.read(200))
 
-        # ③ Bullet 詳細ログを出す (一時的に)
+        # Bullet 詳細ログを出す (一時的に)
         # p.connect(p.DIRECT, options="--verbose")
-        # --- ④ VERBOSE ログを一時的に有効化 ------------------------------
+        # ---  VERBOSE ログを一時的に有効化 ------------------------------
         # p.connect(p.DIRECT, options="--verbose")   # ←別接続になるので注意
         # 代わりに以下:
         p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)   # GUI無効なら無視される
@@ -179,9 +177,9 @@ class QuadEnv(gym.Env):
             physicsClientId=self._cid,
         )
         # どこでも良いので一度だけ実行して確認
-        for j in range(p.getNumJoints(self._robot, physicsClientId=self._cid)):
-            name = p.getJointInfo(self._robot, j, physicsClientId=self._cid)[1].decode()
-            print(j, name)
+        #for j in range(p.getNumJoints(self._robot, physicsClientId=self._cid)):
+        #    name = p.getJointInfo(self._robot, j, physicsClientId=self._cid)[1].decode()
+        #    print(j, name)
 
         ### link・jointの取得確認 ###
         #if p.getNumJoints(self._robot) == 0:
@@ -190,31 +188,15 @@ class QuadEnv(gym.Env):
         #        "Use the SDK-supplied a1/urdf/a1.urdf or remove "
         #        "<transmission> and floating_base from the current file.")
         
-        n_joints = p.getNumJoints(self._robot, physicsClientId=self._cid)
-        print(f"[DEBUG] after load: uid={self._robot}  nJoints={n_joints}")
-        if n_joints == 0:
-            raise RuntimeError(
-                f"{robot_path} has 0 joints. "
-                "Check that this is the SDK-supplied file and contains no "
-                "<transmission>/<floating_base> tags."
-            )
+        #n_joints = p.getNumJoints(self._robot, physicsClientId=self._cid)
+        #print(f"[DEBUG] after load: uid={self._robot}  nJoints={n_joints}")
+        #if n_joints == 0:
+        #    raise RuntimeError(
+        #        f"{robot_path} has 0 joints. "
+        #        "Check that this is the SDK-supplied file and contains no "
+        #        "<transmission>/<floating_base> tags."
+        #    )
         
-        # print("robot id =", self._robot)
-        # print("num joints =", p.getNumJoints(self._robot))
-
-        # print("── PyBullet joint list ──")
-        # for i in range(p.getNumJoints(self._robot)):
-        #     info = p.getJointInfo(self._robot, i)
-        #     print(f"{i:2d} : {info[1].decode()}")
-        # print("─────────────────────────")
-
-        # for i in range(p.getNumJoints(self._robot)):
-        #     info = p.getJointInfo(self._robot, i)
-        #     print(f"{i:2d} : {info[1].decode()}  ->  child link = {info[12].decode()}")
-        # print("------------------------------------------------------------")
-        # for j in range(p.getNumJoints(self._robot)):
-        #     info = p.getJointInfo(self._robot, j)
-        #     print(j, info[1].decode())        # index, joint name
         self.leg_joints, self.leg_ee_link = mu.build_leg_maps(self._robot, self._cid) # 脚の関節とリンクのindexを取得
         self._prev_tau.fill(0.0)   # ← 直前トルクの初期化
         self._ep_step = 0          # ← エピソードステップをリセット

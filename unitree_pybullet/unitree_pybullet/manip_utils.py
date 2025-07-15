@@ -29,7 +29,7 @@ def build_leg_maps(robot_id: int, pclient: int = 0
       leg_joints = { "FR": [hip, upper, lower], ... }
       leg_ee     = { "FR": toe_link_index, ... }
     """
-    # --- ① Joint 名一覧 ------------------------------------------------------
+    # --- Joint 名一覧 ------------------------------------------------------
     joint_name_to_idx = {
         p.getJointInfo(robot_id, j, physicsClientId=pclient)[1].decode(): j
         for j in range(p.getNumJoints(robot_id, physicsClientId=pclient))
