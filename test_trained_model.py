@@ -50,7 +50,7 @@ def main(cfg:DictConfig):
     def make_env_subproc(rank: int):
         def _init():
             env = QuadEnv(model=cfg.unitree_model, 
-                          render=False,
+                          render=True,
                       max_episode_steps=cfg.max_episode_steps,
                       fall_height_th = cfg.fall_height_th,  
                       fall_angle_th = cfg.fall_angle_th,
@@ -105,7 +105,7 @@ def main(cfg:DictConfig):
     
 
 if __name__ == '__main__':
-    env = QuadEnv(model="a1", render=False)
+    env = QuadEnv(model="a1", render=True)
     print(env.action_space)
     print(env.observation_space)
   

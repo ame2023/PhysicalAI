@@ -77,7 +77,7 @@ def main(cfg:DictConfig):
 
     else:
         env = QuadEnv(model=cfg.unitree_model, 
-                      render=False,
+                      render=cfg.render,
                       max_steps_per_episode=cfg.max_steps_per_episode,
                       fall_height_th = cfg.fall_height_th,  
                       fall_angle_th = cfg.fall_angle_th,

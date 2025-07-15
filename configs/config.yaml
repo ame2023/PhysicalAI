@@ -7,10 +7,11 @@ total_steps: 15000
 use_wandb: False
 
 # 環境設定
+render : True # 動画出力 並列化する場合は自動的にFasle
 max_steps_per_episode: 1000
-fall_height_th: 0.25     # [cm] 胴体の高さが25cm以下で転倒判定
-fall_angle_th: 0.6       # [rad] 胴体の角度(roll, pitch)が 0.6rad 以上で転倒判定
-obs_mode : "full"       # {"joint", "joint+base", "full"}
+fall_height_th: 0.1     # [cm] 胴体の高さが25cm以下で転倒判定
+fall_angle_th: 0.3       # [rad] 胴体の角度(roll, pitch)が 0.6rad 以上で転倒判定
+obs_mode : "full"       # {"joint", "joint+base","nonManip","full"}
 action_scale_deg : 45.0  # [deg] アクションのスケール
 control_mode: "position" # {"position" , "torque"}
 torque_scale_Nm: 60.0    # [Nm] トルクのスケール

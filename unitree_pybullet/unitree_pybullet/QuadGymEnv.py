@@ -13,6 +13,7 @@ else:
 
 import pybullet as p
 from importlib.resources import files
+from . import manip_utils as mu
 
 ###########################################################################
 # QuadEnv: Gym/Gymnasium‑compatible PyBullet environment                   #
@@ -53,7 +54,7 @@ class QuadEnv(gym.Env):
     -----
     * Observation  :    dim vector 
     * Action       : 12‑dim vector (target joint pos or torque)
-    * Reward (demo): −‖q‖²   ← replace `_reward()` for real tasks
+    * Reward       :
     """
 
     metadata = {"render_modes": ["human"], "render_fps": 60}
@@ -106,9 +107,15 @@ class QuadEnv(gym.Env):
 
         self._cid: Optional[int] = None
         self._robot: Optional[int] = None
+
+        # 各脚ごとの関節とリンク情報
+        self.leg_joints: Dict[str, list[int]] | None = None
+        self.leg_ee_link: Dict[str, int]      | None = None
+
         self.dt = 1.0 / 500.0
         self._prev_tau = np.zeros(self.num_joint, dtype=np.float32)
         
+        self.fall_penalty = 100 # 転倒時のペナルティ
         # data/ path (shared)
         self._data_path = str(
         files("unitree_pybullet").joinpath("data").joinpath("")  # pathlib→str
@@ -128,7 +135,10 @@ class QuadEnv(gym.Env):
     def reset(self, *, seed: Optional[int] = None, options: Optional[Dict] = None):
         super().reset(seed=seed)
         self._connect_if_needed()
+        print(f"[DEBUG] cid={self._cid}  isConnected={p.isConnected(self._cid)}")
+        # --- シミュレーション初期化 -----------------------------------
         p.resetSimulation(physicsClientId=self._cid)
+        p.setAdditionalSearchPath(self._data_path, physicsClientId=self._cid)# 再度パスを接続
         p.setGravity(0, 0, -9.8, physicsClientId=self._cid)
         p.setTimeStep(self.dt, physicsClientId=self._cid)
                 
@@ -136,12 +146,31 @@ class QuadEnv(gym.Env):
         from unitree_pybullet.unitree_pybullet import get_data_path
         data_dir = get_data_path()
 
-        # ② URDF を絶対パスで読み込む
+        # URDF を絶対パスで読み込む
         plane_path = os.path.join(data_dir, "plane.urdf")
         robot_path = os.path.join(data_dir, self.urdf_relpath)
-        
+        print(f"[DEBUG] plane  = {plane_path}")
+        print(f"[DEBUG] robot  = {robot_path}")
+        print(f"[DEBUG] exists = {os.path.isfile(robot_path)}")
+        # ① 実際に読もうとしているファイルを表示
+        # print("robot_path =", robot_path)
+        # print("exists?    =", os.path.isfile(robot_path))
+
+        # ② ファイル頭 200 文字だけ確認
+        # with open(robot_path, "r", encoding="utf-8") as f:
+        #     print(f.read(200))
+
+        # ③ Bullet 詳細ログを出す (一時的に)
+        # p.connect(p.DIRECT, options="--verbose")
+        # --- ④ VERBOSE ログを一時的に有効化 ------------------------------
+        # p.connect(p.DIRECT, options="--verbose")   # ←別接続になるので注意
+        # 代わりに以下:
+        p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)   # GUI無効なら無視される
+        # ---------------------------------------------------------------
+
+
         p.loadURDF(plane_path, physicsClientId=self._cid)
-        
+
         self._robot = p.loadURDF(
             robot_path,
             [0, 0, 0.48],
@@ -149,6 +178,44 @@ class QuadEnv(gym.Env):
             flags=p.URDF_USE_SELF_COLLISION,
             physicsClientId=self._cid,
         )
+        # どこでも良いので一度だけ実行して確認
+        for j in range(p.getNumJoints(self._robot, physicsClientId=self._cid)):
+            name = p.getJointInfo(self._robot, j, physicsClientId=self._cid)[1].decode()
+            print(j, name)
+
+        ### link・jointの取得確認 ###
+        #if p.getNumJoints(self._robot) == 0:
+        #    raise RuntimeError(
+        #        f"{robot_path} has 0 joints. "
+        #        "Use the SDK-supplied a1/urdf/a1.urdf or remove "
+        #        "<transmission> and floating_base from the current file.")
+        
+        n_joints = p.getNumJoints(self._robot, physicsClientId=self._cid)
+        print(f"[DEBUG] after load: uid={self._robot}  nJoints={n_joints}")
+        if n_joints == 0:
+            raise RuntimeError(
+                f"{robot_path} has 0 joints. "
+                "Check that this is the SDK-supplied file and contains no "
+                "<transmission>/<floating_base> tags."
+            )
+        
+        # print("robot id =", self._robot)
+        # print("num joints =", p.getNumJoints(self._robot))
+
+        # print("── PyBullet joint list ──")
+        # for i in range(p.getNumJoints(self._robot)):
+        #     info = p.getJointInfo(self._robot, i)
+        #     print(f"{i:2d} : {info[1].decode()}")
+        # print("─────────────────────────")
+
+        # for i in range(p.getNumJoints(self._robot)):
+        #     info = p.getJointInfo(self._robot, i)
+        #     print(f"{i:2d} : {info[1].decode()}  ->  child link = {info[12].decode()}")
+        # print("------------------------------------------------------------")
+        # for j in range(p.getNumJoints(self._robot)):
+        #     info = p.getJointInfo(self._robot, j)
+        #     print(j, info[1].decode())        # index, joint name
+        self.leg_joints, self.leg_ee_link = mu.build_leg_maps(self._robot, self._cid) # 脚の関節とリンクのindexを取得
         self._prev_tau.fill(0.0)   # ← 直前トルクの初期化
         self._ep_step = 0          # ← エピソードステップをリセット
         return self._get_obs(), {}
@@ -191,6 +258,11 @@ class QuadEnv(gym.Env):
         obs = self._get_obs()
         reward = self._reward(obs, action)
 
+
+        if self._robot_fallen():
+            # 転倒時のペナルティ
+            reward -= self.fall_penalty
+
         # エピソード修了条件 #
         terminated = self._robot_fallen()
         truncated = self._ep_step >= self.max_steps_per_episode
@@ -223,8 +295,10 @@ class QuadEnv(gym.Env):
             high_obs = np.array([np.pi] * self.num_joint + [np.inf] * self.num_joint, dtype=np.float32)
         elif self.obs_mode == "joint+base": # 関節角度(12)＋関節角速度(12)＋ベース位置(3)＋姿勢：クォータニオン(4)＋移動速度(3)+姿勢の角速度(3)　＝　37次元
             high_obs = np.array([np.pi] * self.num_joint + [np.inf] * 25, dtype=np.float32)
-        elif self.obs_mode == "full": # 関節角度(12)＋関節角速度(12)＋ベース位置(3)＋姿勢：クォータニオン(4)＋移動速度(3)+姿勢の角速度(3) + １ステップ前のトルク(12)　＝　49次元
-            high_obs = np.array([np.pi] * self.num_joint + [np.inf] * 37, dtype=np.float32)  # 49 dims
+        elif self.obs_mode == "nonManip": # 関節角度(12)＋関節角速度(12)＋ベース位置(3)＋姿勢：クォータニオン(4)＋移動速度(3)+姿勢の角速度(3) + １ステップ前のトルク(12)　＝　49次元
+            high_obs = np.array([np.pi] * self.num_joint + [np.inf] * 37, dtype=np.float32)  
+        elif self.obs_mode == "full": # 関節角度(12)＋関節角速度(12)＋ベース位置(3)＋姿勢：クォータニオン(4)＋移動速度(3)+姿勢の角速度(3) + １ステップ前のトルク(12) + 可操作度(4)　＝　53次元
+            high_obs = np.array([np.pi] * self.num_joint + [np.inf] * 41, dtype=np.float32) 
         self.observation_space = gym.spaces.Box(-high_obs, high_obs, dtype=np.float32)
 
     def _connect_if_needed(self):
@@ -232,6 +306,8 @@ class QuadEnv(gym.Env):
             return
         mode = p.GUI if self.render else p.DIRECT
         self._cid = p.connect(mode)
+        #self._cid = p.connect(p.GUI,    options="--start_demo_name=Physics Server")
+        #self._cid = p.connect(mode, options="--search-path="+self._data_path)
         p.setAdditionalSearchPath(self._data_path, physicsClientId=self._cid)
 
     def _get_obs(self) -> np.ndarray:
@@ -244,8 +320,15 @@ class QuadEnv(gym.Env):
             lin, ang = p.getBaseVelocity(self._robot, self._cid)
             obs += list(pos) + list(orn) + list(lin) + list(ang)
 
-        if self.obs_mode == "full":
+        if self.obs_mode in {"nonManip", "full"}:
             obs += list(self._prev_tau)
+
+        if self.obs_mode == "full":
+            m4 = mu.compute_leg_manipulability(
+                    self._robot, self.leg_joints,
+                    self.leg_ee_link,
+                    self._cid)
+            obs += list(m4) 
 
         return np.array(obs, dtype=np.float32)
 
@@ -287,21 +370,4 @@ class QuadEnv(gym.Env):
         fall_height = pos[2] < height_th
         fall_angle  = abs(roll) > angle_th or abs(pitch) > angle_th
         return fall_height or fall_angle
-
-
-# Quick test -----------------------------------------------------------------
-# if __name__ == "__main__":
-#     env = QuadEnv(
-#         model="a1",
-#         render=False,
-#         obs_mode="full",
-#         control_mode="torque",
-#         torque_scale_Nm=40,
-#     )
-#     obs, _ = env.reset()
-#     print("obs dim =", obs.shape)
-#     for _ in range(1000):
-#         a = env.action_space.sample()
-#         env.step(a)
-#     env.close()
 

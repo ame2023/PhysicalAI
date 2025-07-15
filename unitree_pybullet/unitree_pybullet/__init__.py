@@ -2,10 +2,8 @@ import pybullet as _p
 from pathlib import Path
 
 # ------------ data/ の実パスを取得 ----------------------------------
-try:                                    # Py ≥3.9
-    from importlib.resources import files as _files
-except ImportError:                     # Py 3.8 back-port
-    from importlib_resources import files as _files
+# Py ≥3.9
+from importlib.resources import files as _files
 
 _real_path = _files(__name__).joinpath("data").joinpath("")  # pathlib → str
 _real_path = str(_real_path)
