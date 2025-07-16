@@ -21,9 +21,3 @@ reward_mode: "progress"  # {"progress","EnergeticProgress"}
 # 環境並列化
 multi_env: False #True
 num_envs: 4
-
-
-
-
-# 学習済みモデルのテスト
-test_seed: 42

@@ -1,0 +1,9 @@
+# configs/test_config.yaml
+defaults:
+  - config.yaml   # ベースの学習用設定を読み込む
+  - _self_        # このファイル自身を Hydra に認識させる
+
+# ここでキーを宣言しておく
+trained_model_path: null   # CLI や別ファイルから上書き可能に
+seed_offset: 100           # オフセット値のデフォルト
+results_dir: "./test_results"

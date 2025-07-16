@@ -11,7 +11,8 @@ unitree_pybullet/unitree_pybullet/
 　・QuadGymEnv.py　：　環境クラスの定義
 　・manip_utils.py　：　可操作度の計算　
 
-
+# 学習済みモデルのテスト　コマンド例
+test_trained_model.py  --model-path outputs/2025-07-16/00-40-36/ppo_a1.zip  --results-dir ./my_test_results  --episodes 20
 
 # 仮想環境の作り方
 python -m venv venv 
