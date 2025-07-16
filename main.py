@@ -20,6 +20,8 @@ from stable_baselines3.common.monitor import Monitor
 
 from unitree_pybullet.unitree_pybullet import QuadEnv
 
+from src.models import ExtendModel
+
 
 @hydra.main(version_base = None, 
             config_path = "configs",# config.yamlファイルのパス

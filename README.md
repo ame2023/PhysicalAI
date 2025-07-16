@@ -1,27 +1,58 @@
 # 使い方
 
 ## 学習
-ターミナル上で
+
+以下のコマンドをターミナルで実行して、強化学習を開始します。
+
+```bash
 python main.py
+```
+
+## 学習済みモデルのテスト
+
+以下のコマンド例のように、学習済みモデルをテストできます。
+
+```bash
+python test_trained_model.py \
+  --model-path outputs/2025-07-16/00-40-36/ppo_a1.zip \
+  --results-dir ./my_test_results \
+  --episodes 20
+```
 
 # ファイル説明
-・main.py　：　強化学習実施
-・test_trained_model.py　：　学習済みモデルのテスト
-unitree_pybullet/unitree_pybullet/
-　・QuadGymEnv.py　：　環境クラスの定義
-　・manip_utils.py　：　可操作度の計算　
 
-# 学習済みモデルのテスト　コマンド例
-test_trained_model.py  --model-path outputs/2025-07-16/00-40-36/ppo_a1.zip  --results-dir ./my_test_results  --episodes 20
+* `main.py`：強化学習を実行するスクリプト
+* `test_trained_model.py`：学習済みモデルをロードしてテストするスクリプト
+src/
+* `visualize_results.py`:outputsに保存されているmonitor.csvを可視化
 
-# 仮想環境の作り方
-python -m venv venv 
+### 環境定義
 
-# 仮想環境のアクティベート
-.\venv\Scripts\activate
+`unitree_pybullet/unitree_pybullet/` 以下に環境クラスとユーティリティ関数があります。
+
+* `QuadGymEnv.py`：シミュレーション環境クラスの定義
+* `manip_utils.py`：可操作度（Yoshikawa 指標など）の計算ユーティリティ
+
+# 仮想環境の作成およびアクティベート
+
+以下のコマンドで Python 仮想環境を作成し、有効化します。
+
+```bash
+# 仮想環境の作成
+target_dir=venv
+python -m venv $target_dir
+
+# Windows の場合
+source $target_dir/Scripts/activate
+# macOS/Linux の場合
+source $target_dir/bin/activate
+```
 
 # 環境構築
-バージョン参考
+
+依存パッケージをインストールします。バージョンは参考例です。
+
+```text
 Package                Version
 ---------------------- -----------
 accelerate             0.29.3
@@ -122,3 +153,8 @@ wandb                  0.19.10
 wcwidth                0.2.13
 wheel                  0.45.1
 zipp                   3.18.1
+```
+
+```bash
+pip install -r requirements.txt
+```

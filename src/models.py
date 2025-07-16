@@ -1,13 +1,15 @@
 import torch
 
-from stable_baselines3 import PPO                       
-
+from stable_baselines3 import PPO, SAC, TD3
 
 ##########################
 #
 # 可操作性を考慮したロス関数 
 #
 ##########################
+
+__all__ = ["ExtendModel"]
+
 class ManipulabilityLoss:
     """SB3 の既存 loss に可操作性楕円の L_aux を足す"""
     def __init__(self, *args,
@@ -68,7 +70,7 @@ class ManipulabilityLoss:
 ##
 
 
-def DRLModel(model = 'PPO'):
+def ExtendModel(model = 'PPO'):
     def loss_actor_critic(   # v2 系の例
         self,
         values, log_prob, entropy, advantages, returns

@@ -317,10 +317,10 @@ class QuadEnv(gym.Env):
     def _reward(self, obs: np.ndarray, action: np.ndarray) -> float:
         if self.reward_mode == "progress" and self.obs_mode in {"joint+base", "full"}:
             vx, vy = obs[31], obs[32]
-            target_vx, target_vy = 1.0, 0.0
+            target_vx, target_vy = 1.0, 0.0 #[m/s]
             sigma_v = 0.25
-            v_err_sq = (target_vx - vx) ** 2 + (target_vy - vy) ** 2
-            return float(np.exp(-v_err_sq / (2 * sigma_v ** 2)))
+            v_err_sq = (vx - target_vx) ** 2 + (vy - target_vy) ** 2
+            return float(np.exp(-v_err_sq / sigma_v))
 
         elif self.reward_mode == "EnergeticProgress":
             """
