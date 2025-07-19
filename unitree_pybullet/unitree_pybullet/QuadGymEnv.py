@@ -110,8 +110,8 @@ class QuadEnv(gym.Env):
         self.leg_joints: Dict[str, list[int]] | None = None
         self.leg_ee_link: Dict[str, int]      | None = None
 
-        self.dt = 1.0 / 500.0
-        self._prev_tau = np.zeros(self.num_joint, dtype=np.float32)
+        self.dt = 1.0 / 400.0 # シミュレーションの1stepあたりの経過時間
+        self._prev_action = np.zeros(self.num_joint, dtype=np.float32)
         
         self.fall_penalty = 100 # 転倒時のペナルティ
         # data/ path (shared)
@@ -198,7 +198,7 @@ class QuadEnv(gym.Env):
         #    )
         
         self.leg_joints, self.leg_ee_link = mu.build_leg_maps(self._robot, self._cid) # 脚の関節とリンクのindexを取得
-        self._prev_tau.fill(0.0)   # ← 直前トルクの初期化
+        self._prev_action.fill(0.0)   # ← 直前トルクの初期化
         self._ep_step = 0          # ← エピソードステップをリセット
         return self._get_obs(), {}
 
@@ -218,7 +218,7 @@ class QuadEnv(gym.Env):
                     physicsClientId=self._cid,
                 )
             # 実際に発生したトルクを取得（次ステップ用）
-            self._prev_tau = np.array(
+            self._prev_action = np.array(
                 [p.getJointState(self._robot, j, physicsClientId=self._cid)[3] for j in range(self.num_joint)],
                 dtype=np.float32,
             )
@@ -233,7 +233,7 @@ class QuadEnv(gym.Env):
                     force=float(tau),
                     physicsClientId=self._cid,
                 )
-            self._prev_tau = taus.astype(np.float32)
+            self._prev_action = taus.astype(np.float32)
 
         p.stepSimulation(physicsClientId=self._cid)
 
@@ -303,7 +303,7 @@ class QuadEnv(gym.Env):
             obs += list(pos) + list(orn) + list(lin) + list(ang)
 
         if self.obs_mode in {"nonManip", "full"}:
-            obs += list(self._prev_tau)
+            obs += list(self._prev_action)
 
         if self.obs_mode == "full":
             m4 = mu.compute_leg_manipulability(

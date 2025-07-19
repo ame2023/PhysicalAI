@@ -3,7 +3,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import gymnasium as gym
-
 import hydra
 from omegaconf import DictConfig
 import wandb
@@ -17,10 +16,12 @@ from stable_baselines3.common.vec_env import DummyVecEnv # 同期処理
 from gymnasium.vector import AsyncVectorEnv # 並列数(<=8)＋並列環境の可視化したい
 from stable_baselines3.common.vec_env import VecMonitor
 from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.callbacks import EvalCallback
 
 from unitree_pybullet.unitree_pybullet import QuadEnv
 
 from src.models import ExtendModel
+from src.SkipFrame import SkipFrame
 
 
 @hydra.main(version_base = None, 
@@ -64,6 +65,7 @@ def main(cfg:DictConfig):
                       fall_height_th = cfg.fall_height_th,  
                       fall_angle_th = cfg.fall_angle_th,
                       )
+            env = SkipFrame(env, skip = cfg.skip_freq)
             env.reset(seed=cfg.seed+rank)
             env.action_space.seed(cfg.seed+rank)
             return env
@@ -89,8 +91,10 @@ def main(cfg:DictConfig):
                       torque_scale_Nm = cfg.torque_scale_Nm,  # [Nm] トルクのスケールを指定
                       reward_mode = cfg.reward_mode,
                       )
+        env = SkipFrame(env, skip = cfg.skip_freq)
         env.reset(seed=cfg.seed)
-        env = Monitor(env,
+        env = DummyVecEnv([lambda:env])
+        env = VecMonitor(env,
                       filename = monitor_path, # 報酬などの保存先
                       #info_keywords=("episode",)
                       ) # 報酬などを計測
@@ -100,10 +104,23 @@ def main(cfg:DictConfig):
                 verbose=1, # 学習ログの詳細表示，0で表示しない
                 device = "auto"
                  )
+    # --- 評価環境とコールバックの設定 --------------------------------
+    eval_env = SubprocVecEnv([make_env_subproc(100)], start_method="spawn")
+    eval_env = VecMonitor(eval_env, filename=os.path.join(logdir, "eval_monitor.csv"))
+    eval_callback = EvalCallback(
+    eval_env,
+    best_model_save_path=logdir,
+    log_path=logdir,
+    eval_freq=2048*5,        # 2048*5ステップごとに評価（エージェントの更新が2048stepに1回のため）
+    n_eval_episodes=10,     # 10エピソードで平均をとる
+    deterministic=True,
+    render=False,
+)
 
     # --- 学習 ------------------------------------------------------
-    for _ in tqdm(range(cfg.total_steps // 2048)):
-        agent.learn(2048, reset_num_timesteps=False)
+    for _ in tqdm(range(cfg.total_steps // 2048)): # 2048stepに一回エージェントを更新
+        agent.learn(2048, reset_num_timesteps=False, callback = eval_callback)
+        # agent.learn(2048, reset_num_timesteps=False)
 
     # --- モデル保存 ------------------------------------------------------
     agent.save(os.path.join(logdir, f"ppo_{cfg.unitree_model}.zip"))

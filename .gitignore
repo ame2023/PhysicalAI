@@ -209,3 +209,5 @@ __marimo__/
 
 # output
 outputs/
+# my_test_results
+my_test_results/

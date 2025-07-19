@@ -15,7 +15,7 @@ python main.py
 ```bash
 python test_trained_model.py \
   --model-path outputs/2025-07-16/00-40-36/ppo_a1.zip \
-  --results-dir ./my_test_results \
+  --results-dir ./my_test_results/2025-07-16/00-40-36 \
   --episodes 20
 ```
 
@@ -23,7 +23,7 @@ python test_trained_model.py \
 
 * `main.py`：強化学習を実行するスクリプト
 * `test_trained_model.py`：学習済みモデルをロードしてテストするスクリプト
-src/
+* src/ のファイル
 * `visualize_results.py`:outputsに保存されているmonitor.csvを可視化
 
 ### 環境定義
