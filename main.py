@@ -10,11 +10,11 @@ from tqdm import tqdm
 
 from src.utils import set_seed
 # from src.models import PPO
-from stable_baselines3 import PPO
+from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.vec_env import SubprocVecEnv # 非同期処理，並列数(>16)＋並列環境の可視化をしない
 from stable_baselines3.common.vec_env import DummyVecEnv # 同期処理
 from gymnasium.vector import AsyncVectorEnv # 並列数(<=8)＋並列環境の可視化したい
-from stable_baselines3.common.vec_env import VecMonitor
+from stable_baselines3.common.vec_env import VecMonitor, VecNormalize
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import EvalCallback
 
@@ -74,6 +74,11 @@ def main(cfg:DictConfig):
     if cfg.multi_env:
         env = SubprocVecEnv([make_env_subproc(i) for i in range(cfg.num_envs)], start_method = "spawn") 
         #env = AsyncVectorEnv([make_env(i) for i in range(cfg.num_envs)])
+        env = VecNormalize(env,
+                            norm_obs=True,
+                            norm_reward=True,#報酬の正規化はPPOのみで実施
+                            clip_obs=10.
+                            )
         env = VecMonitor(env,
                          filename = monitor_path, # 報酬などの保存先
                          #info_keywords=("episode",)
@@ -94,37 +99,60 @@ def main(cfg:DictConfig):
         env = SkipFrame(env, skip = cfg.skip_freq)
         env.reset(seed=cfg.seed)
         env = DummyVecEnv([lambda:env])
+        env = VecNormalize(env,
+                            norm_obs=True,
+                            norm_reward=True, 
+                            clip_obs=10.)
         env = VecMonitor(env,
                       filename = monitor_path, # 報酬などの保存先
                       #info_keywords=("episode",)
                       ) # 報酬などを計測
-
+    
     # --- Agent作成 ------------------------------------------------------
+    policy_kwargs = dict(
+    net_arch=dict(pi=[256, 256], vf=[256, 256]) # pi:policy network, vf:value network
+    )
+    """
+    PPO以外の学習では報酬の正規化をoffにしておく
+    学習環境と評価（callback）環境の両方
+    env = VecNormalize(env, norm_obs=True, 
+    norm_reward=True,  ＜ー False
+    clip_obs=10.)
+    """
     agent = PPO(cfg.policy, env, 
+                n_steps = cfg.n_steps,
                 verbose=1, # 学習ログの詳細表示，0で表示しない
-                device = "auto"
+                seed = cfg.seed,
+                device = cfg.device,
+                policy_kwargs = policy_kwargs
                  )
     # --- 評価環境とコールバックの設定 --------------------------------
-    eval_env = SubprocVecEnv([make_env_subproc(100)], start_method="spawn")
+    eval_env = SubprocVecEnv([make_env_subproc(i+100) for i in range(cfg.num_eval_envs)], start_method = "spawn") 
+    eval_env = VecNormalize(eval_env, training = False, norm_obs=True, norm_reward=True, clip_obs=10.)
     eval_env = VecMonitor(eval_env, filename=os.path.join(logdir, "eval_monitor.csv"))
+    eval_env.reset()
     eval_callback = EvalCallback(
-    eval_env,
-    best_model_save_path=logdir,
-    log_path=logdir,
-    eval_freq=2048*5,        # 2048*5ステップごとに評価（エージェントの更新が2048stepに1回のため）
-    n_eval_episodes=10,     # 10エピソードで平均をとる
-    deterministic=True,
-    render=False,
-)
+        eval_env,
+        best_model_save_path=logdir,
+        log_path=logdir,
+        eval_freq=2048*5,        # 2048*5ステップごとに評価（エージェントの更新が2048stepに1回のため）
+        n_eval_episodes=10,     # 10エピソードで平均をとる
+        deterministic=False,
+        render=False,
+        )
 
     # --- 学習 ------------------------------------------------------
-    for _ in tqdm(range(cfg.total_steps // 2048)): # 2048stepに一回エージェントを更新
-        agent.learn(2048, reset_num_timesteps=False, callback = eval_callback)
-        # agent.learn(2048, reset_num_timesteps=False)
+    agent.learn(total_timesteps = cfg.total_steps,
+                 reset_num_timesteps=False,
+                 callback = eval_callback,
+                 progress_bar = True,
+                 )
+
 
     # --- モデル保存 ------------------------------------------------------
     agent.save(os.path.join(logdir, f"ppo_{cfg.unitree_model}.zip"))
-
+    # 統計情報の保存（正規化用） #
+    env.save(os.path.join(logdir, "vecnormalize.pkl"))
 
 
     if cfg.use_wandb:
@@ -141,6 +169,7 @@ def main(cfg:DictConfig):
     if run is not None: 
         run.finish()
     env.close()
+    eval_env.close()
 
     
 

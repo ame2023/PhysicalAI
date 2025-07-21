@@ -1,5 +1,11 @@
 # 使い方
 
+## TODO
+* 報酬関数の設計
+* PDゲインの調整
+* ロス関数に可操作度の追加（StableBaselines3の拡張）
+* 
+
 ## 学習
 
 以下のコマンドをターミナルで実行して、強化学習を開始します。
@@ -17,6 +23,16 @@ python test_trained_model.py \
   --model-path outputs/2025-07-16/00-40-36/ppo_a1.zip \
   --results-dir ./my_test_results/2025-07-16/00-40-36 \
   --episodes 20
+```
+等速再生
+```bash
+python test_trained_model.py \
+  -m outputs/2025-07-16/00-40-36/ppo_a1.zip \
+  --realtime --speed 1.0
+```
+倍速再生
+```bash
+python test_trained_model.py -m outputs/.../ppo_a1.zip --realtime --speed 2.0
 ```
 
 # ファイル説明
@@ -94,9 +110,11 @@ JSAnimation            0.1
 jupyter_client         8.6.1
 jupyter_core           5.7.2
 kiwisolver             1.4.5
+markdown-it-py         3.0.0
 MarkupSafe             2.1.5
 matplotlib             3.10.3
 matplotlib-inline      0.1.7
+mdurl                  0.1.2
 mpmath                 1.3.0
 nest-asyncio           1.6.0
 networkx               3.3
@@ -125,6 +143,7 @@ PyYAML                 6.0.1
 pyzmq                  26.0.0
 regex                  2024.4.16
 requests               2.31.0
+rich                   14.0.0
 safetensors            0.4.3
 scikit-learn           1.4.2
 scipy                  1.13.0
@@ -138,9 +157,9 @@ stack-data             0.6.3
 sympy                  1.14.0
 threadpoolctl          3.5.0
 tokenizers             0.19.1
-torch                  2.7.1
-torchaudio             2.2.2
-torchvision            0.17.2
+torch                  2.7.1+cu128
+torchaudio             2.7.1+cu128
+torchvision            0.22.1+cu128
 tornado                6.4
 tqdm                   4.66.2
 traitlets              5.14.2

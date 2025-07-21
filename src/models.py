@@ -19,6 +19,7 @@ class ManipulabilityLoss:
                  ):
         super().__init__(*args, **kwargs)
         self.manip_coef = manip_coef
+        self.use_manip_loss = use_manip_loss
     
     # --- On-policy (PPO/A2C) ---
     def loss_actor_critic(          
@@ -70,7 +71,51 @@ class ManipulabilityLoss:
 ##
 
 
-def ExtendModel(model = 'PPO'):
+class ExtendModel:
+    def __init__(self, 
+                model_name :str ,
+                env,
+                use_manip_loss : bool = False,
+                manip_coef: float = 0.1,
+                policy_kwargs :dict = None,
+                **kwargs,                
+                ):
+        self.model_name = model_name
+        self.env = env
+        self.use_manip_loss = use_manip_loss
+        self.manip_coef = manip_coef
+        policy_kwargs = policy_kwargs or dict(net_arch=dict(pi=[256,256], vf=[256,256]))
+        # ベースクラスを動的に決定 (Mixin + 元のアルゴリズム)
+        if model_name == 'PPO':
+            BaseCls = type('CustomPPO', (ManipulabilityLoss, PPO), {})
+        elif model_name == 'SAC':
+            BaseCls = type('CustomSAC', (ManipulabilityLoss, SAC), {})
+        elif model_name == 'TD3':
+            BaseCls = type('CustomTD3', (ManipulabilityLoss, TD3), {})
+        else:
+            raise ValueError(f"サポート外のモデルです: {model_name}")
+
+        # エージェント生成
+        self.agent = BaseCls(
+            'MlpPolicy',
+            env,
+            verbose=1,
+            device='auto',
+            policy_kwargs=policy_kwargs,
+            use_manip_loss=use_manip_loss,
+            manip_coef=manip_coef,
+            **kwargs
+        )
+
+    def learn(self, *args, **kwargs):
+        return self.agent.learn(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self.agent, name)
+    
+
+
+
     def loss_actor_critic(   # v2 系の例
         self,
         values, log_prob, entropy, advantages, returns
@@ -100,4 +145,9 @@ def ExtendModel(model = 'PPO'):
 #)
 #model.learn(1_000_000)
 
+
+
+
+###################################
+# Class PPO(self, PPO):
 

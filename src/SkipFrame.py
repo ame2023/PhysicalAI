@@ -27,3 +27,15 @@ class SkipFrame(gym.Wrapper):
     # Optional: ラッパー経由で reset を透過的に呼びたい場合
     def reset(self, **kwargs):
         return self.env.reset(**kwargs)
+    
+class RenderEveryNSteps(gym.Wrapper):
+    def __init__(self, env, render_every=4):
+        super().__init__(env)
+        self.render_every = render_every
+        self._cnt = 0
+    def step(self, action):
+        obs, r, term, trunc, info = self.env.step(action)
+        self._cnt += 1
+        if self._cnt % self.render_every == 0 and hasattr(self.env, "render"):
+            self.env.render()
+        return obs, r, term, trunc, info

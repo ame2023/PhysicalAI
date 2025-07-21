@@ -1,5 +1,5 @@
 import os
-from typing import Tuple, Dict, Optional
+from typing import Tuple, Dict, Optional, List
 import numpy as np
 try:
     import gymnasium as gym  # Gym >=0.26 (Gymnasium fork)
@@ -51,7 +51,7 @@ class QuadEnv(gym.Env):
     Notes
     -----
     * Observation  :    dim vector 
-    * Action       : 12‑dim vector (target joint pos or torque)
+    * Action       : 12dim vector (target joint pos or torque)
     * Reward       :
     """
 
@@ -66,7 +66,7 @@ class QuadEnv(gym.Env):
     def __init__(self, model: str = "a1", 
                  render: bool = False, 
                  max_steps_per_episode: int = 1000, # １エピソードあたりの最大ステップ数
-                 fall_height_th: float = 0.25,  # [cm] 胴体の高さが25cm以下で転倒判定
+                 fall_height_th: float = 0.25,  # [m] 胴体の高さが25cm以下で転倒判定
                  fall_angle_th: float = 0.6,    # [rad] 胴体の姿勢が0.6radよりも傾くと転倒判定
                  obs_mode: str = "full",         # 観測データの種類を指定
                  action_scale_deg: float = 45.0, # [deg] アクションのスケールを指定
@@ -77,7 +77,7 @@ class QuadEnv(gym.Env):
         
         if model not in self._SUPPORTED_MODELS:
             raise ValueError(f"Unknown model '{model}'. Choose from {list(self._SUPPORTED_MODELS)}")
-        if obs_mode not in {"joint", "joint+base", "full"}:
+        if obs_mode not in {"joint", "joint+base","nonManip" ,"full"}:
             raise ValueError(f"Unknown obs_mode '{obs_mode}'")
         if control_mode not in {"position", "torque"}:
             raise ValueError(f"Unknown control_mode '{control_mode}'")
@@ -87,6 +87,7 @@ class QuadEnv(gym.Env):
         self.urdf_relpath = self._SUPPORTED_MODELS[model]
         self.render = render
         self.num_joint = 12
+        self.actuated: List[int] = []
 
         # 終了条件の設定
         self.max_steps_per_episode = max_steps_per_episode
@@ -98,7 +99,7 @@ class QuadEnv(gym.Env):
         self.obs_mode = obs_mode
         self.control_mode = control_mode
         # 行動出力の指定
-        self._action_scale_rad = np.deg2rad(action_scale_deg)
+        self._action_scale_rad = np.deg2rad(action_scale_deg) # deg -> rad
         self.torque_scale = torque_scale_Nm
         # 報酬関数の指定
         self.reward_mode = reward_mode 
@@ -112,8 +113,12 @@ class QuadEnv(gym.Env):
 
         self.dt = 1.0 / 400.0 # シミュレーションの1stepあたりの経過時間
         self._prev_action = np.zeros(self.num_joint, dtype=np.float32)
+        # PDゲイン
+        self.Kp = 30.0
+        self.Kd = 2
+
         
-        self.fall_penalty = 100 # 転倒時のペナルティ
+        self.fall_penalty = 300 # 転倒時のペナルティ
         # data/ path (shared)
         self._data_path = str(
         files("unitree_pybullet").joinpath("data").joinpath("")  # pathlib→str
@@ -151,8 +156,8 @@ class QuadEnv(gym.Env):
         #print(f"[DEBUG] robot  = {robot_path}")
         #print(f"[DEBUG] exists = {os.path.isfile(robot_path)}")
         # 実際に読もうとしているファイルを表示
-        # print("robot_path =", robot_path)
-        # print("exists?    =", os.path.isfile(robot_path))
+        #print("robot_path =", robot_path)
+        #print("exists?    =", os.path.isfile(robot_path))
 
         # ファイル頭 200 文字だけ確認
         # with open(robot_path, "r", encoding="utf-8") as f:
@@ -176,13 +181,15 @@ class QuadEnv(gym.Env):
             flags=p.URDF_USE_SELF_COLLISION,
             physicsClientId=self._cid,
         )
+
+        #####################################
         # どこでも良いので一度だけ実行して確認
         #for j in range(p.getNumJoints(self._robot, physicsClientId=self._cid)):
         #    name = p.getJointInfo(self._robot, j, physicsClientId=self._cid)[1].decode()
         #    print(j, name)
 
-        ### link・jointの取得確認 ###
-        #if p.getNumJoints(self._robot) == 0:
+        ## link・jointの取得確認 ###
+        #if p.getNumJoints(self._robot, physicsClientId=self._cid) == 0:
         #    raise RuntimeError(
         #        f"{robot_path} has 0 joints. "
         #        "Use the SDK-supplied a1/urdf/a1.urdf or remove "
@@ -196,8 +203,23 @@ class QuadEnv(gym.Env):
         #        "Check that this is the SDK-supplied file and contains no "
         #        "<transmission>/<floating_base> tags."
         #    )
+        ########################################################################
         
         self.leg_joints, self.leg_ee_link = mu.build_leg_maps(self._robot, self._cid) # 脚の関節とリンクのindexを取得
+        self.actuated = (self.leg_joints["FR"] + self.leg_joints["FL"] + self.leg_joints["RR"] + self.leg_joints["RL"])
+        self.num_joint = len(self.actuated) # = 12
+
+        #print("Num Joints", p.getNumJoints(self._robot, physicsClientId=self._cid))
+        #print("DEBUG_A: after load local n_joints =", p.getNumJoints(self._robot, physicsClientId=self._cid))
+        #print("DEBUG_B: hasattr(self,'num_joint')?", hasattr(self,'num_joint'), " value:", getattr(self,'num_joint','<NA>'))
+        #print("DEBUG_C: id(self) =", id(self))
+        #import inspect, sys
+        #print("DEBUG_D: QuadEnv defined in:", inspect.getsourcefile(self.__class__))
+
+        if self.control_mode == "torque"or self.control_mode =="position":
+            for j in self.actuated:
+                p.setJointMotorControl2(self._robot, j, p.VELOCITY_CONTROL, force=0, physicsClientId=self._cid)
+
         self._prev_action.fill(0.0)   # ← 直前トルクの初期化
         self._ep_step = 0          # ← エピソードステップをリセット
         return self._get_obs(), {}
@@ -208,24 +230,19 @@ class QuadEnv(gym.Env):
 
         if self.control_mode == "position":
             targets = self._action_scale_rad * action
-            for j, tgt in enumerate(targets):
-                p.setJointMotorControl2(
-                    self._robot,
-                    j,
-                    p.POSITION_CONTROL,
-                    targetPosition=float(tgt),
-                    force=self.torque_scale,
-                    physicsClientId=self._cid,
-                )
-            # 実際に発生したトルクを取得（次ステップ用）
-            self._prev_action = np.array(
-                [p.getJointState(self._robot, j, physicsClientId=self._cid)[3] for j in range(self.num_joint)],
-                dtype=np.float32,
-            )
-
-        elif self.control_mode == "torque":
-            taus = self.torque_scale * action
-            for j, tau in enumerate(taus):
+            # 現在角度と角速度を取得
+            qs = np.array([p.getJointState(self._robot, j, physicsClientId=self._cid)[0] for j in self.actuated], dtype=np.float32)
+            qds = np.array([p.getJointState(self._robot, j, physicsClientId=self._cid)[1] for j in self.actuated], dtype=np.float32)
+            ## PD制御でトルクを計算 ##
+            #print("qs= ", qs )
+            #print("qds = ", qds)
+            #print("target qs = ", targets)
+            torques = self.Kp * (targets - qs) + self.Kd * (0.0 - qds)
+            # トルクのクリッピング
+            torques = np.clip(torques,  -self.torque_scale, self.torque_scale)
+            #print("torques = ", torques)
+            # トルク制御として適用
+            for j, tau in zip(self.actuated,torques):
                 p.setJointMotorControl2(
                     self._robot,
                     j,
@@ -233,20 +250,34 @@ class QuadEnv(gym.Env):
                     force=float(tau),
                     physicsClientId=self._cid,
                 )
-            self._prev_action = taus.astype(np.float32)
+            # 実際に発生したトルクを取得（次ステップ用）
+            self._prev_action = torques.astype(np.float32)
+
+        elif self.control_mode == "torque":
+            torques = self.torque_scale * action
+            torques = np.clip(torques,  -self.torque_scale, self.torque_scale)
+            #print("taus = ", taus)
+            for j, tau in zip(self.actuated, torques):
+                p.setJointMotorControl2(
+                    self._robot,
+                    j,
+                    p.TORQUE_CONTROL,
+                    force=float(tau),
+                    physicsClientId=self._cid,
+                )
+            self._prev_action = torques.astype(np.float32)
 
         p.stepSimulation(physicsClientId=self._cid)
 
         obs = self._get_obs()
         reward = self._reward(obs, action)
 
-
-        if self._robot_fallen():
-            # 転倒時のペナルティ
+        # 転倒時のペナルティ        
+        fallen = self._robot_fallen()
+        if fallen:
             reward -= self.fall_penalty
-
         # エピソード修了条件 #
-        terminated = self._robot_fallen()
+        terminated = fallen
         truncated = self._ep_step >= self.max_steps_per_episode
 
         if terminated or truncated:
@@ -293,11 +324,11 @@ class QuadEnv(gym.Env):
         p.setAdditionalSearchPath(self._data_path, physicsClientId=self._cid)
 
     def _get_obs(self) -> np.ndarray:
-        qs = [p.getJointState(self._robot, j, physicsClientId=self._cid)[0] for j in range(self.num_joint)]
-        qdots = [p.getJointState(self._robot, j, physicsClientId=self._cid)[1] for j in range(self.num_joint)]
+        qs = [p.getJointState(self._robot, j, physicsClientId=self._cid)[0] for j in self.actuated]
+        qdots = [p.getJointState(self._robot, j, physicsClientId=self._cid)[1] for j in self.actuated]
         obs = qs + qdots
 
-        if self.obs_mode in {"joint+base", "full"}:
+        if self.obs_mode in {"joint+base","nonManip", "full"}:
             pos, orn = p.getBasePositionAndOrientation(self._robot, self._cid)
             lin, ang = p.getBaseVelocity(self._robot, self._cid)
             obs += list(pos) + list(orn) + list(lin) + list(ang)

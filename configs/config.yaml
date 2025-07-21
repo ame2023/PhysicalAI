@@ -1,24 +1,31 @@
 seed: 1234
 
 unitree_model: 'a1' # {a1, aliengo, laikago}
+
 policy: 'MlpPolicy'
-total_steps: 2000000
+n_steps: 2048
+total_steps: 1024000 #参考2048*500 = 1,024,000 # n_step*num_update
 
 use_wandb: False
+
+device: "auto" # {"cpu", "cuda", "auto"}
 
 # 環境設定
 render : True # 動画出力 並列化する場合は自動的にFasle
 max_steps_per_episode: 4000  # max_steps_per_episode = 4000かつ 1step =1/400なら １episode = 10sのシミュレーション
-skip_freq: 4 # エージェントはskip_frewq回同じ行動を連続してとる
-fall_height_th: 0.05     # [cm] 胴体の高さが25cm以下で転倒判定
+skip_freq: 1 # 4 エージェントはskip_frewq回同じ行動を連続してとる
+fall_height_th: 0.05     # [m] 胴体の高さが25cm以下で転倒判定
 fall_angle_th: 1.0       # [rad] 胴体の角度(roll, pitch)が 1.0[rad]≒60[deg]  以上で転倒判定
 obs_mode : "full"        # {"joint", "joint+base","nonManip","full"}
 control_mode: "position" # {"position" , "torque"}
-action_scale_deg : 180   # [deg] アクションのスケール (controll_mode == "position")
+action_scale_deg : 90   # [deg] アクションのスケール[0, 180] (controll_mode == "position")
 torque_scale_Nm: 30.0    # [Nm] トルクのスケール (a1:30, aliengo:50) (controll_mode  ="torque")
 reward_mode: "progress"  # {"progress","EnergeticProgress"}
 
 
+
 # 環境並列化
-multi_env: True 
-num_envs: 4
+multi_env: False
+num_envs: 8
+
+num_eval_envs: 5
