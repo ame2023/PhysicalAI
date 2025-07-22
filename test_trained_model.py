@@ -72,7 +72,7 @@ def make_env(cfg, seed: int = 0):
         reward_mode=cfg.reward_mode,
     )
     os.makedirs(cfg.results_dir, exist_ok=True)
-    env = SkipFrame(env, skip=cfg.skip_freq)
+    #env = SkipFrame(env, skip=cfg.skip_freq)
     env.reset(seed=seed)
     env.action_space.seed(seed)
     env.observation_space.seed(seed)
@@ -108,8 +108,8 @@ if __name__ == "__main__":
     """
     env = VecMonitor(env, filename=os.path.join(cfg.results_dir, "monitor.csv"))
 
-    print("wrapper stack =", env)
-    print("skip setting  =", env.get_attr('skip')[0])  # ← DummyVecEnv 下位の SkipFrame.skip
+    #print("wrapper stack =", env)
+    #print("skip setting  =", env.get_attr('skip')[0])  # ← DummyVecEnv 下位の SkipFrame.skip
     # モデル読み込み
     model = PPO.load(args.model_path, env = env)
 
@@ -118,8 +118,8 @@ if __name__ == "__main__":
     # --- リアルタイム同期 ---------------------------------------------------
     if args.realtime:
         # VecEnv 経由で基礎環境属性を取得
-        base_dt = env.get_attr("dt")[0]  # QuadEnv.dt
-        eff_dt = base_dt * getattr(cfg, "skip_freq", 1)
+        #base_dt = env.get_attr("dt")[0]  # QuadEnv.dt
+        #eff_dt = base_dt * getattr(cfg, "skip_freq", 1)
         wall_start = time.time()
         last_log_wall = wall_start
         sim_time = 0.0
@@ -146,7 +146,7 @@ if __name__ == "__main__":
             ep_ret += float(reward[0])
             ep_len += 1
             if args.realtime:
-                sim_time += eff_dt
+                #sim_time += eff_dt
                 wall_elapsed = time.time() - wall_start
                 target_wall = sim_time / speed
                 sleep_needed = target_wall - wall_elapsed

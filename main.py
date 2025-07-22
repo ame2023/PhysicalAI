@@ -65,7 +65,7 @@ def main(cfg:DictConfig):
                       fall_height_th = cfg.fall_height_th,  
                       fall_angle_th = cfg.fall_angle_th,
                       )
-            env = SkipFrame(env, skip = cfg.skip_freq)
+            #env = SkipFrame(env, skip = cfg.skip_freq)
             env.reset(seed=cfg.seed+rank)
             env.action_space.seed(cfg.seed+rank)
             return env
@@ -96,7 +96,7 @@ def main(cfg:DictConfig):
                       torque_scale_Nm = cfg.torque_scale_Nm,  # [Nm] トルクのスケールを指定
                       reward_mode = cfg.reward_mode,
                       )
-        env = SkipFrame(env, skip = cfg.skip_freq)
+        #env = SkipFrame(env, skip = cfg.skip_freq)
         # 乱数シード固定
         env.reset(seed=cfg.seed)
         env.action_space.seed(cfg.seed)

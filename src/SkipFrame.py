@@ -12,16 +12,22 @@ class SkipFrame(gym.Wrapper):
         self.skip = skip
 
     def step(self, action):
+        """
+        skipした場合、その間のinfoを最後のステップのinfoに追加
+        """
         total_reward = 0.0
         terminated, truncated = False, False
-        info = {}
+        infos = []
         for _ in range(self.skip):
-            obs, reward, term, trunc, info = self.env.step(action)
+            obs, reward, term, trunc, step_info = self.env.step(action)
             total_reward += reward
+            infos.append(step_info)
             terminated |= term
             truncated |= trunc
             if terminated or truncated:
                 break
+        info = infos[-1]  # 最後のステップのinfo
+        info["skip_infos"] = infos  # すべてのinfoを格納
         return obs, total_reward, terminated, truncated, info
 
     # Optional: ラッパー経由で reset を透過的に呼びたい場合
