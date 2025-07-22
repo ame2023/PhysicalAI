@@ -1,7 +1,7 @@
 # 使い方
 
 ## TODO
-* 報酬関数の設計
+* 報酬関数の設計(重みのチューニング)
 * PDゲインの調整
 * ロス関数に可操作度の追加（StableBaselines3の拡張）
 * 
@@ -24,8 +24,9 @@ python test_trained_model.py \
   --results-dir ./my_test_results/2025-07-16/00-40-36 \
   --episodes 20
 ```
+* best_modelのテスト
 ```bash
-python test_trained_model.py --model-path outputs/2025-07-16/00-40-36/ppo_a1.zip --results-dir ./my_test_results/2025-07-16/00-40-36 --episodes 20
+python test_trained_model.py --model-path outputs/2025-07-16/00-40-36/best_model.zip --results-dir ./my_test_results/2025-07-16/00-40-36 --episodes 20
 ```
 
 等速再生

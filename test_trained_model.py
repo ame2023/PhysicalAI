@@ -83,10 +83,10 @@ if __name__ == "__main__":
     args = parse_args()
 
     # 設定ファイル読み込み (.hydra/config.yaml を参照)
-    base_dir = args.config_dir or os.path.dirname(args.model_path)
-    hydra_dir = os.path.join(base_dir, ".hydra")
+    base_dir   = args.config_dir or os.path.dirname(args.model_path)
+    hydra_dir  = os.path.join(base_dir, ".hydra")
     config_path = os.path.join(hydra_dir, "config.yaml")
-    stats_path = os.path.join(base_dir, "vecnormalize.pkl")
+    stats_path  = os.path.join(base_dir, "vecnormalize.pkl")
     if not os.path.isfile(config_path):
         raise FileNotFoundError(f"config.yaml not found: {config_path}")
     cfg = OmegaConf.load(config_path)
@@ -95,10 +95,9 @@ if __name__ == "__main__":
 
     # 環境作成
     env = make_env(cfg)
-    env = DummyVecEnv([lambda:env])
-    
+    env = DummyVecEnv([lambda: env])
     env = VecNormalize.load(stats_path, env)
-    
+
     # 評価モード（統計更新停止）
     env.training = False
     """
@@ -108,45 +107,51 @@ if __name__ == "__main__":
     """
     env = VecMonitor(env, filename=os.path.join(cfg.results_dir, "monitor.csv"))
 
-    #print("wrapper stack =", env)
-    #print("skip setting  =", env.get_attr('skip')[0])  # ← DummyVecEnv 下位の SkipFrame.skip
     # モデル読み込み
-    model = PPO.load(args.model_path, env = env)
+    model = PPO.load(args.model_path, env=env)
 
-
-
-    # --- リアルタイム同期 ---------------------------------------------------
+    # ------------------------- リアルタイム同期 -------------------------
     if args.realtime:
-        # VecEnv 経由で基礎環境属性を取得
-        #base_dt = env.get_attr("dt")[0]  # QuadEnv.dt
-        #eff_dt = base_dt * getattr(cfg, "skip_freq", 1)
-        wall_start = time.time()
-        last_log_wall = wall_start
-        sim_time = 0.0
-        speed = args.speed if args.speed > 0 else 1.0
+        # VecEnv 経由で基礎シミュレーション周期を取得
+        base_dt = env.get_attr("dt")[0]          # QuadEnv.dt (=1/400)
+        try:
+            # SkipFrame ラッパが存在すればその skip を優先
+            skip = env.get_attr("skip")[0]
+        except Exception:
+            # ラッパなし → cfg が持っていれば使用，なければ 1
+            skip = getattr(cfg, "skip_freq", 1) if hasattr(cfg, "skip_freq") else 1
+        skip   = max(int(skip), 1)
+        eff_dt = base_dt * skip
 
-    # --- エピソードループ ---------------------------------------------------
+        wall_start   = time.time()
+        last_log_wall = wall_start
+        sim_time     = 0.0
+        speed        = args.speed if args.speed > 0 else 1.0
+
+    # ------------------------- エピソードループ -------------------------
     # VecEnv なので obs.shape = (1, obs_dim)
     for ep in range(1, args.episodes + 1):
-        seed = cfg.seed + ep 
-        obs = env.reset()
+        seed = cfg.seed + ep
+        obs  = env.reset()
         ep_ret = 0.0
         ep_len = 0
         while True:
             action, _ = model.predict(obs, deterministic=args.deterministic)
-            step_out = env.step(action)
+            step_out  = env.step(action)
             # Gym / Gymnasium 両対応
-            if len(step_out) == 5:   # Gymnasium
+            if len(step_out) == 5:  # Gymnasium
                 obs, reward, terminated, truncated, infos = step_out
-                done = terminated[0] or truncated[0]
+                done   = terminated[0] or truncated[0]
                 rew_scalar = reward[0]
-            else:                    # Classic Gym
+            else:                   # Classic Gym
                 obs, reward, done, infos = step_out
                 rew_scalar = reward[0] if hasattr(reward, "__getitem__") else reward
             ep_ret += float(reward[0])
             ep_len += 1
+
+            # ------ 等速同期 ------
             if args.realtime:
-                #sim_time += eff_dt
+                sim_time += eff_dt
                 wall_elapsed = time.time() - wall_start
                 target_wall = sim_time / speed
                 sleep_needed = target_wall - wall_elapsed
@@ -156,11 +161,10 @@ if __name__ == "__main__":
                     now = time.time()
                     if now - last_log_wall >= args.sync_log_interval:
                         ratio = (sim_time / speed) / (now - wall_start + 1e-9)
-                        print(
-                            f"[SYNC] sim_time={sim_time:.2f}s wall={now-wall_start:.2f}s "
-                            f"speed={speed:.2f} ratio={ratio:.3f}"
-                        )
+                        print(f"[SYNC] sim_time={sim_time:.2f}s wall={now - wall_start:.2f}s "
+                              f"speed={speed:.2f} ratio={ratio:.3f}")
                         last_log_wall = now
+
             if done:
                 break
 

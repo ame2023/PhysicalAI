@@ -43,6 +43,7 @@ def main(cfg:DictConfig):
                          config=dict(cfg)
                          )
 
+
     # --- 並列環境の作成 ------------------------------------------------------
     # def make_env(rank:int):
     #     def _init():
@@ -56,7 +57,6 @@ def main(cfg:DictConfig):
     #         env.action_space.seed(cfg.seed + rank)
     #         return env
     #     return _init
-
     def make_env_subproc(rank: int):
         def _init():
             env = QuadEnv(model=cfg.unitree_model, 

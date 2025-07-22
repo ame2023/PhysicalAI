@@ -360,7 +360,16 @@ class QuadEnv(gym.Env):
             """
             報酬関数の設計
             """
-            return 0.0  # TODO: 実装
+            # 前進速度を正とし、関節トルク²をエネルギ損失として差し引く
+            vx = obs[31]
+            progress = vx                      # 1 [m/s] ≒ 1 点
+            qdot   = obs[12:24]                  # 各関節角速度 [rad/s]
+            torque = self._prev_action           # 1 ステップ前に実際に発生したトルク [Nm]
+            power  = np.dot(torque, qdot)        # ∑ τ·ω = 機械的仕事率
+            beta   = 0.04                        # エネルギ重み (要チューニング)
+
+            return float(progress - beta * power)
+
         
 
         # fallback: joint-angle penalty
