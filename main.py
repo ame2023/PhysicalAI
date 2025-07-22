@@ -92,12 +92,16 @@ def main(cfg:DictConfig):
                       fall_angle_th = cfg.fall_angle_th,
                       obs_mode = cfg.obs_mode,        # 観測データの種類を指定
                       action_scale_deg = cfg.action_scale_deg, # [deg] アクションのスケールを指定
-                      control_mode = cfg.control_mode, # 制御方法を指定 position or torque
+                      control_mode = cfg.control_mode, # 制御方法を指定 PDcontrol or torque
                       torque_scale_Nm = cfg.torque_scale_Nm,  # [Nm] トルクのスケールを指定
                       reward_mode = cfg.reward_mode,
                       )
         env = SkipFrame(env, skip = cfg.skip_freq)
+        # 乱数シード固定
         env.reset(seed=cfg.seed)
+        env.action_space.seed(cfg.seed)
+        env.observation_space.seed(cfg.seed)
+
         env = DummyVecEnv([lambda:env])
         env = VecNormalize(env,
                             norm_obs=True,

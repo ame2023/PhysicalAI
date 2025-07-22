@@ -41,10 +41,10 @@ class QuadEnv(gym.Env):
     obs_mode : {"joint", "joint+base", "full"}, default "joint"
         "full" は base 状態 + 直前トルク τ_{t-1} も含む（49 次元）
     
-    control_mode : {"position", "torque"}, default "position"
+    control_mode : {"PDcontrol", "torque"}, default "PDcontrol"
         "torque" を選ぶと action は正規化トルク指令（±torque_scale_Nm）
     action_scale_deg : float, default 45
-        "position" 制御時に action ∈ [-1,1] を ±action_scale_deg [deg] へ線形変換
+        "PDcontrol" 制御時に action ∈ [-1,1] を ±action_scale_deg [deg] へ線形変換
     torque_scale_Nm : float, default 60
         "torque" 制御時の最大絶対トルク [Nm]
 
@@ -70,7 +70,7 @@ class QuadEnv(gym.Env):
                  fall_angle_th: float = 0.6,    # [rad] 胴体の姿勢が0.6radよりも傾くと転倒判定
                  obs_mode: str = "full",         # 観測データの種類を指定
                  action_scale_deg: float = 45.0, # [deg] アクションのスケールを指定
-                 control_mode: str = "position", # 制御方法を指定 position or torque
+                 control_mode: str = "PDcontrol", # 制御方法を指定 PDcontrol or torque
                  torque_scale_Nm: float = 60.0,  # [Nm] トルクのスケールを指定
                  reward_mode: str = 'progress',
                  ):
@@ -79,7 +79,7 @@ class QuadEnv(gym.Env):
             raise ValueError(f"Unknown model '{model}'. Choose from {list(self._SUPPORTED_MODELS)}")
         if obs_mode not in {"joint", "joint+base","nonManip" ,"full"}:
             raise ValueError(f"Unknown obs_mode '{obs_mode}'")
-        if control_mode not in {"position", "torque"}:
+        if control_mode not in {"PDcontrol", "torque"}:
             raise ValueError(f"Unknown control_mode '{control_mode}'")
 
         super().__init__()
@@ -144,7 +144,8 @@ class QuadEnv(gym.Env):
         p.setAdditionalSearchPath(self._data_path, physicsClientId=self._cid)# 再度パスを接続
         p.setGravity(0, 0, -9.8, physicsClientId=self._cid)
         p.setTimeStep(self.dt, physicsClientId=self._cid)
-                
+        
+
         # data/　の絶対パス
         from unitree_pybullet.unitree_pybullet import get_data_path
         data_dir = get_data_path()
@@ -182,6 +183,7 @@ class QuadEnv(gym.Env):
             physicsClientId=self._cid,
         )
 
+
         #####################################
         # どこでも良いので一度だけ実行して確認
         #for j in range(p.getNumJoints(self._robot, physicsClientId=self._cid)):
@@ -216,7 +218,7 @@ class QuadEnv(gym.Env):
         #import inspect, sys
         #print("DEBUG_D: QuadEnv defined in:", inspect.getsourcefile(self.__class__))
 
-        if self.control_mode == "torque"or self.control_mode =="position":
+        if self.control_mode == "torque"or self.control_mode =="PDcontrol":
             for j in self.actuated:
                 p.setJointMotorControl2(self._robot, j, p.VELOCITY_CONTROL, force=0, physicsClientId=self._cid)
 
@@ -228,7 +230,7 @@ class QuadEnv(gym.Env):
         action = np.clip(action, -1.0, 1.0)
         self._ep_step += 1 
 
-        if self.control_mode == "position":
+        if self.control_mode == "PDcontrol":
             targets = self._action_scale_rad * action
             # 現在角度と角速度を取得
             qs = np.array([p.getJointState(self._robot, j, physicsClientId=self._cid)[0] for j in self.actuated], dtype=np.float32)
@@ -266,7 +268,7 @@ class QuadEnv(gym.Env):
                     physicsClientId=self._cid,
                 )
             self._prev_action = torques.astype(np.float32)
-
+            
         p.stepSimulation(physicsClientId=self._cid)
 
         obs = self._get_obs()
@@ -324,6 +326,7 @@ class QuadEnv(gym.Env):
         p.setAdditionalSearchPath(self._data_path, physicsClientId=self._cid)
 
     def _get_obs(self) -> np.ndarray:
+        # obs_mode in {"joint","joint+base","nonManip", "full"}
         qs = [p.getJointState(self._robot, j, physicsClientId=self._cid)[0] for j in self.actuated]
         qdots = [p.getJointState(self._robot, j, physicsClientId=self._cid)[1] for j in self.actuated]
         obs = qs + qdots
@@ -384,3 +387,4 @@ class QuadEnv(gym.Env):
         fall_angle  = abs(roll) > angle_th or abs(pitch) > angle_th
         return fall_height or fall_angle
 
+        

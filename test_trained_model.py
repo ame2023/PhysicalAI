@@ -7,7 +7,10 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 from unitree_pybullet.unitree_pybullet import QuadEnv
 from omegaconf import OmegaConf
-from stable_baselines3.common.vec_env import VecMonitor, VecNormalize
+from stable_baselines3.common.vec_env import VecMonitor, VecNormalize, DummyVecEnv
+
+from src.models import ExtendModel
+from src.SkipFrame import SkipFrame
 
 
 def parse_args():
@@ -20,7 +23,7 @@ def parse_args():
     parser.add_argument(
         "--results-dir", "-r",
         type=str, default="./my_test_results",
-        help="テスト結果（リワード推移等）を保存するディレクトリ"
+        help="テスト結果（報酬の推移等）を保存するディレクトリ"
     )
     parser.add_argument(
         "--config-dir", "-c",
@@ -47,6 +50,11 @@ def parse_args():
         type=float, default=5.0,
         help="同期状態(ratio)をログする秒間隔（実時間）。0以下で無効。"
     )
+    parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        help="True の場合 determinisitc=True でモデルを実行（再現性重視）。",
+    )
     return parser.parse_args()
 
 
@@ -64,14 +72,10 @@ def make_env(cfg, seed: int = 0):
         reward_mode=cfg.reward_mode,
     )
     os.makedirs(cfg.results_dir, exist_ok=True)
-    env = VecNormalize(env, 
-                       training = False,
-                       norm_obs=True,
-                       norm_reward=True,
-                       clip_obs=10.)
-    env = Monitor(env,
-                  filename=os.path.join(cfg.results_dir, "monitor.csv"))
+    env = SkipFrame(env, skip=cfg.skip_freq)
     env.reset(seed=seed)
+    env.action_space.seed(seed)
+    env.observation_space.seed(seed)
     return env
 
 
@@ -82,55 +86,84 @@ if __name__ == "__main__":
     base_dir = args.config_dir or os.path.dirname(args.model_path)
     hydra_dir = os.path.join(base_dir, ".hydra")
     config_path = os.path.join(hydra_dir, "config.yaml")
+    stats_path = os.path.join(base_dir, "vecnormalize.pkl")
     if not os.path.isfile(config_path):
         raise FileNotFoundError(f"config.yaml not found: {config_path}")
     cfg = OmegaConf.load(config_path)
     # テスト結果出力先だけ上書き
     cfg.results_dir = args.results_dir
 
-    # モデル読み込み
-    model = PPO.load(args.model_path)
-
     # 環境作成
     env = make_env(cfg)
-    env = VecNormalize.load("vecnormalize.pkl", env)
+    env = DummyVecEnv([lambda:env])
+    
+    env = VecNormalize.load(stats_path, env)
+    
+    # 評価モード（統計更新停止）
+    env.training = False
+    """
+    # rewardの逆正規化を行って生報酬を得たければ以下を False に
+    # （学習時と同じ正規化スケールでログするなら True のまま）
+    # env.norm_reward = False
+    """
+    env = VecMonitor(env, filename=os.path.join(cfg.results_dir, "monitor.csv"))
 
-    # リアルタイム同期用初期化
+    print("wrapper stack =", env)
+    print("skip setting  =", env.get_attr('skip')[0])  # ← DummyVecEnv 下位の SkipFrame.skip
+    # モデル読み込み
+    model = PPO.load(args.model_path, env = env)
+
+
+
+    # --- リアルタイム同期 ---------------------------------------------------
     if args.realtime:
-        if not hasattr(env, "dt"):
-            raise AttributeError("env に dt 属性が必要です（QuadEnv.dt を参照）。")
+        # VecEnv 経由で基礎環境属性を取得
+        base_dt = env.get_attr("dt")[0]  # QuadEnv.dt
+        eff_dt = base_dt * getattr(cfg, "skip_freq", 1)
         wall_start = time.time()
         last_log_wall = wall_start
         sim_time = 0.0
         speed = args.speed if args.speed > 0 else 1.0
 
+    # --- エピソードループ ---------------------------------------------------
+    # VecEnv なので obs.shape = (1, obs_dim)
     for ep in range(1, args.episodes + 1):
-        obs, info = env.reset(seed=ep)
-        total_reward = 0.0
-        done = False
-        while not done:
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, info = env.step(action)
-            total_reward += reward
-            done = terminated or truncated
-
-            # --- リアルタイム同期制御 ---
+        seed = cfg.seed + ep 
+        obs = env.reset()
+        ep_ret = 0.0
+        ep_len = 0
+        while True:
+            action, _ = model.predict(obs, deterministic=args.deterministic)
+            step_out = env.step(action)
+            # Gym / Gymnasium 両対応
+            if len(step_out) == 5:   # Gymnasium
+                obs, reward, terminated, truncated, infos = step_out
+                done = terminated[0] or truncated[0]
+                rew_scalar = reward[0]
+            else:                    # Classic Gym
+                obs, reward, done, infos = step_out
+                rew_scalar = reward[0] if hasattr(reward, "__getitem__") else reward
+            ep_ret += float(reward[0])
+            ep_len += 1
             if args.realtime:
-                sim_time += env.dt  # 1 step で dt だけ進む前提
+                sim_time += eff_dt
                 wall_elapsed = time.time() - wall_start
                 target_wall = sim_time / speed
                 sleep_needed = target_wall - wall_elapsed
-                # 過剰コンテキストスイッチを避けるため閾値を設定
                 if sleep_needed > 5e-4:
                     time.sleep(sleep_needed)
                 if args.sync_log_interval > 0:
                     now = time.time()
                     if now - last_log_wall >= args.sync_log_interval:
                         ratio = (sim_time / speed) / (now - wall_start + 1e-9)
-                        print(f"[SYNC] sim_time={sim_time:.2f}s wall={now-wall_start:.2f}s "
-                              f"speed={speed:.2f} ratio={ratio:.3f}")
+                        print(
+                            f"[SYNC] sim_time={sim_time:.2f}s wall={now-wall_start:.2f}s "
+                            f"speed={speed:.2f} ratio={ratio:.3f}"
+                        )
                         last_log_wall = now
+            if done:
+                break
 
-        print(f"Episode {ep:02d}: total_reward = {total_reward:.2f}")
+        print(f"Episode {ep:02d}: total_reward={ep_ret:.2f} len={ep_len}")
 
     env.close()

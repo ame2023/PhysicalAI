@@ -24,6 +24,10 @@ python test_trained_model.py \
   --results-dir ./my_test_results/2025-07-16/00-40-36 \
   --episodes 20
 ```
+```bash
+python test_trained_model.py --model-path outputs/2025-07-16/00-40-36/ppo_a1.zip --results-dir ./my_test_results/2025-07-16/00-40-36 --episodes 20
+```
+
 等速再生
 ```bash
 python test_trained_model.py \
@@ -34,6 +38,17 @@ python test_trained_model.py \
 ```bash
 python test_trained_model.py -m outputs/.../ppo_a1.zip --realtime --speed 2.0
 ```
+
+学習過程の可視化(src/)
+* 可視化したいCSVの指定
+```bash
+python visualize_results.py --monitor-csv outputs/2025-07-22/00-07-25/monitor.csv
+```
+* PNGとして保存(例：my_test_results/monitor.csvと同階層に保存)
+```bash
+python visualize_results.py --monitor-csv my_test_results/monitor.csv --save-png
+```
+
 
 # ファイル説明
 

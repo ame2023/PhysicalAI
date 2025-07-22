@@ -5,5 +5,5 @@ defaults:
 
 # ここでキーを宣言しておく
 trained_model_path: null   # CLI や別ファイルから上書き可能に
-seed_offset: 100           # オフセット値のデフォルト
+seed_offset: 1000           # オフセット値のデフォルト
 results_dir: "./test_results"
