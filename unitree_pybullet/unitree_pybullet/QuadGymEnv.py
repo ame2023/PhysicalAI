@@ -174,15 +174,22 @@ class QuadEnv(gym.Env):
 
 
         p.loadURDF(plane_path, physicsClientId=self._cid)
-
-        self._robot = p.loadURDF(
-            robot_path,
-            [0, 0, 0.48],
-            useFixedBase=False,
-            flags=p.URDF_USE_SELF_COLLISION,
-            physicsClientId=self._cid,
-        )
-
+        if self.model_name == "a1":
+            self._robot = p.loadURDF(
+                robot_path,
+                [0, 0, 0.42],
+                useFixedBase=False,
+                flags=p.URDF_USE_SELF_COLLISION,
+                physicsClientId=self._cid,
+            )
+        elif self.model_name == "aliengo":
+            self._robot = p.loadURDF(
+                robot_path,
+                [0, 0, 0.525],
+                useFixedBase=False,
+                flags=p.URDF_USE_SELF_COLLISION,
+                physicsClientId=self._cid,
+            )
 
         #####################################
         # どこでも良いので一度だけ実行して確認
@@ -240,7 +247,7 @@ class QuadEnv(gym.Env):
             #print("qds = ", qds)
             #print("target qs = ", targets)
             torques = self.Kp * (targets - qs) + self.Kd * (0.0 - qds)
-            # トルクのクリッピング
+            # トルクのクリッピング 
             torques = np.clip(torques,  -self.torque_scale, self.torque_scale)
             #print("torques = ", torques)
             # トルク制御として適用
