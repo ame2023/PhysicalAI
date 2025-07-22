@@ -101,6 +101,7 @@ class ExtendModel:
             env,
             verbose=1,
             device='auto',
+            batch_size = 128,
             policy_kwargs=policy_kwargs,
             use_manip_loss=use_manip_loss,
             manip_coef=manip_coef,

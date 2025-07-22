@@ -2,13 +2,15 @@ seed: 1234
 
 unitree_model: 'a1' # {a1, aliengo, laikago}
 
+# agent設定
 policy: 'MlpPolicy'
 n_steps: 2048
 total_steps: 20480 #参考2048*500 = 1,024,000 # n_step*num_update
+device: "cpu" # {"cpu", "cuda", "auto"}
+minibatch_size: 128
+
 
 use_wandb: False
-
-device: "cpu" # {"cpu", "cuda", "auto"}
 
 # 環境設定
 render : True # 動画出力 並列化する場合は自動的にFasle

@@ -128,6 +128,7 @@ def main(cfg:DictConfig):
                 verbose=1, # 学習ログの詳細表示，0で表示しない
                 seed = cfg.seed,
                 device = cfg.device,
+                batch_size = cfg.minibatch_size,
                 policy_kwargs = policy_kwargs
                  )
     # --- 評価環境とコールバックの設定 --------------------------------
