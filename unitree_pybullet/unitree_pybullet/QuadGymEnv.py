@@ -72,7 +72,7 @@ class QuadEnv(gym.Env):
                  action_scale_deg: float = 45.0, # [deg] アクションのスケールを指定
                  control_mode: str = "PDcontrol", # 制御方法を指定 PDcontrol or torque
                  torque_scale_Nm: float = 60.0,  # [Nm] トルクのスケールを指定
-                 reward_mode: str = 'progress',
+                 reward_mode: str = 'Progress',
                  ):
         
         if model not in self._SUPPORTED_MODELS:
@@ -114,11 +114,15 @@ class QuadEnv(gym.Env):
         self.dt = 1.0 / 400.0 # シミュレーションの1stepあたりの経過時間
         self._prev_action = np.zeros(self.num_joint, dtype=np.float32)
         # PDゲイン
-        self.Kp = 20.0
-        self.Kd = 0.001
+        self.Kp = 40.0
+        self.Kd = 1
 
         
         self.fall_penalty = 300 # 転倒時のペナルティ
+
+        # 初期姿勢（ホームポジション）
+        self.initial_joint = [0.0, 0.8, -1.5] #[hip, thigh, calf] の順に角度(rad)設定
+
         # data/ path (shared)
         self._data_path = str(
         files("unitree_pybullet").joinpath("data").joinpath("")  # pathlib→str
@@ -241,7 +245,12 @@ class QuadEnv(gym.Env):
         self._ep_step += 1 
 
         if self.control_mode == "PDcontrol":
-            targets = self._action_scale_rad * action
+            # 初期姿勢をホームポジションに設定
+            self.q0 = np.array( self.initial_joint * 4, dtype=np.float32)   # 12 次元
+            # PDcontrol 部
+            # targets = self._action_scale_rad * action
+            targets = self.q0 + self._action_scale_rad * action
+
             # 現在角度と角速度を取得
             qs = np.array([p.getJointState(self._robot, j, physicsClientId=self._cid)[0] for j in self.actuated], dtype=np.float32)
             qds = np.array([p.getJointState(self._robot, j, physicsClientId=self._cid)[1] for j in self.actuated], dtype=np.float32)
@@ -360,7 +369,7 @@ class QuadEnv(gym.Env):
         return np.array(obs, dtype=np.float32)
 
     def _reward(self, obs: np.ndarray, action: np.ndarray) -> float:
-        if self.reward_mode == "progress" and self.obs_mode in {"joint+base", "full"}:
+        if self.reward_mode == "Progress":
             vx, vy = obs[31], obs[32]
             target_vx, target_vy = 0.8, 0.0 #[m/s]
             sigma_v = 0.25
@@ -411,7 +420,7 @@ class QuadEnv(gym.Env):
     def _set_initial_pose(self):
         """Unitree A1 公式のスタンディングポーズを適用"""
         # [hip, thigh, calf] の順に角度(rad)設定
-        default_angles = np.array([0.0, 0.8, -1.5], dtype=np.float32)
+        default_angles = np.array(self.initial_joint, dtype=np.float32)
         for leg in ("FL", "FR", "RL", "RR"):
             for k, jid in enumerate(self.leg_joints[leg]):
                 p.resetJointState(

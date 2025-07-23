@@ -78,7 +78,7 @@ def main(cfg:DictConfig):
         #env = AsyncVectorEnv([make_env(i) for i in range(cfg.num_envs)])
         env = VecNormalize(env,
                             norm_obs=True,
-                            norm_reward=True,#報酬の正規化はPPOのみで実施
+                            norm_reward=cfg.norm_reward,#報酬の正規化はPPOのみで実施
                             clip_obs=10.
                             )
         env = VecMonitor(env,
@@ -108,7 +108,7 @@ def main(cfg:DictConfig):
         env = VecNormalize(env,
                            training = True,
                             norm_obs=True,
-                            norm_reward=True, 
+                            norm_reward=cfg.norm_reward, 
                             clip_obs=10.)
         env = VecMonitor(env,
                       filename = monitor_path, # 報酬などの保存先
@@ -136,7 +136,7 @@ def main(cfg:DictConfig):
                  )
     # --- 評価環境とコールバックの設定 --------------------------------
     eval_env = SubprocVecEnv([make_env_subproc(i+100) for i in range(cfg.num_eval_envs)], start_method = "spawn") 
-    eval_env = VecNormalize(eval_env, training = False, norm_obs=True, norm_reward=True, clip_obs=10.)
+    eval_env = VecNormalize(eval_env, training = False, norm_obs=True, norm_reward=cfg.norm_reward, clip_obs=10.)
     eval_env = VecMonitor(eval_env, filename=os.path.join(logdir, "eval_monitor.csv"))
     eval_env.reset()
     eval_callback = EvalCallback(
@@ -176,7 +176,7 @@ def main(cfg:DictConfig):
     plt.close()
 
    # --- 修正後（生報酬＋移動平均を同一図に描画） ---
-    window = 50
+    window = 10
     rewards_smooth = (
         pd.Series(rewards)
         .rolling(window=window, min_periods=1)

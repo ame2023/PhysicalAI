@@ -19,10 +19,12 @@ max_steps_per_episode: 4000  # max_steps_per_episode = 4000かつ 1step =1/400�
 fall_height_th: 0.2     # [m] 胴体の高さが25cm以下で転倒判定
 fall_angle_th: 1.0       # [rad] 胴体の角度(roll, pitch)が 1.0[rad]≒60[deg]  以上で転倒判定
 obs_mode : "full"        # {"joint", "joint+base","nonManip","full"}
-control_mode: "torque" # {"PDcontrol" , "torque"}
-action_scale_deg : 90   # [deg] アクションのスケール[0, 180] (control_mode == "PDcontrol")
+control_mode: "PDcontrol" # {"PDcontrol" , "torque"}
+action_scale_deg : 180   # [deg] アクションのスケール[0, 180] (control_mode == "PDcontrol")
 torque_scale_Nm: 30.0    # [Nm] トルクのスケール(control_mode = "torque")&クリッピング最大値 (a1:30, aliengo:50) 
-reward_mode: "Progress"  # {"progress","EnergeticProgress"}
+reward_mode: "Progress"  # {"Progress","EnergeticProgress"}
+
+norm_reward: False # 基本はFalse。PPOのみTrueにすると学習が安定する
 
 # 環境並列化
 multi_env: False
