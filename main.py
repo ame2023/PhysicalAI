@@ -18,13 +18,36 @@ from stable_baselines3.common.vec_env import DummyVecEnv # 同期処理
 from gymnasium.vector import AsyncVectorEnv # 並列数(<=8)＋並列環境の可視化したい
 from stable_baselines3.common.vec_env import VecMonitor, VecNormalize
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.callbacks import EvalCallback
+from stable_baselines3.common.callbacks import EvalCallback,  BaseCallback
 
 from unitree_pybullet.unitree_pybullet import QuadEnv
 
 from src.models import ExtendModel
 from src.SkipFrame import SkipFrame
+from src.make_figure import save_reward_and_loss_plots
 
+
+
+# ---- 損失ロガー -------------------------------------------------------------
+class LossLoggerCallback(BaseCallback):
+    def __init__(self, logdir, verbose=0):
+        super().__init__(verbose=verbose)
+        self.logdir, self.records = logdir, []
+
+    def _on_step(self) -> bool:
+        # logger.dump() 直後なので train/xxx_loss が揃っている
+        kv = self.model.logger.name_to_value
+        if any(k.startswith("train/") and "loss" in k for k in kv):
+            self.records.append({k: kv[k] for k in kv if k.startswith("train/")})
+        return True
+
+    def _on_training_end(self):
+        if self.records:
+            pd.DataFrame(self.records).to_csv(
+                os.path.join(self.logdir, "loss_history.csv"), index=False
+            )
+
+# ------------------------------------------- #
 
 @hydra.main(version_base = None, 
             config_path = "configs",# config.yamlファイルのパス
@@ -116,9 +139,12 @@ def main(cfg:DictConfig):
                       ) # 報酬などを計測
     
     # --- Agent作成 ------------------------------------------------------
-    policy_kwargs = dict(
-    net_arch=dict(pi=[256, 256], vf=[256, 256]) # pi:policy network, vf:value network
-    )
+    if cfg.algo == "PPO":
+        policy_kwargs = dict(
+            net_arch=dict(pi=[256, 256], vf=[256, 256]) # pi:policy network, vf:value network
+            )
+    else:
+        policy_kwargs = dict(net_arch=dict(pi=[256, 256], qf=[256, 256]))
     """
     PPO以外の学習では報酬の正規化をoffにしておく
     学習環境と評価（callback）環境の両方
@@ -126,14 +152,26 @@ def main(cfg:DictConfig):
     norm_reward=True,  ＜ー False
     clip_obs=10.)
     """
-    agent = PPO(cfg.policy, env, 
-                n_steps = cfg.n_steps,
-                verbose=1, # 学習ログの詳細表示，0で表示しない
-                seed = cfg.seed,
-                device = cfg.device,
-                batch_size = cfg.minibatch_size,
-                policy_kwargs = policy_kwargs
-                 )
+    #agent = PPO(cfg.policy, env, 
+    #            n_steps = cfg.n_steps,
+    #            verbose=1, # 学習ログの詳細表示，0で表示しない
+    #            seed = cfg.seed,
+    #            device = cfg.device,
+    #            batch_size = cfg.minibatch_size,
+    #            policy_kwargs = policy_kwargs
+    #             )
+    agent = ExtendModel(
+        model_name=cfg.algo,          # 'PPO' / 'SAC' / 'TD3'
+        policy = cfg.policy,
+        env=env,
+        use_manip_loss=cfg.use_manip_loss,
+        manip_coef=cfg.manip_coef,
+        seed=cfg.seed,
+        device=cfg.device,
+        batch_size=cfg.minibatch_size,
+        policy_kwargs=policy_kwargs,
+        )
+
     # --- 評価環境とコールバックの設定 --------------------------------
     eval_env = SubprocVecEnv([make_env_subproc(i+100) for i in range(cfg.num_eval_envs)], start_method = "spawn") 
     eval_env = VecNormalize(eval_env, training = False, norm_obs=True, norm_reward=cfg.norm_reward, clip_obs=10.)
@@ -150,55 +188,21 @@ def main(cfg:DictConfig):
         )
 
     # --- 学習 ------------------------------------------------------
+    loss_logger = LossLoggerCallback(logdir)
     agent.learn(total_timesteps = cfg.total_steps,
                  reset_num_timesteps=False,
-                 callback = eval_callback,
+                 callback = [eval_callback, loss_logger],
                  progress_bar = True,
                  )
 
 
     # --- 報酬推移プロット --------------------------------------------------
-    # Monitor の CSV を読み込み、エピソード報酬を可視化
-    monitor_df = pd.read_csv(monitor_path, skiprows=1)  # 先頭 1 行はヘッダコメントなので省く
-    rewards = monitor_df["r"].to_numpy()
-    steps_ep = monitor_df["l"].to_numpy()
-    cum_steps = np.cumsum(steps_ep)
-
-    plt.figure(figsize=(6, 4))
-    plt.plot(rewards)
-    plt.xlabel("Episode")
-    plt.ylabel("Reward")
-    plt.title("Episode Reward Over Training")
-    plt.tight_layout()
-
-    reward_plot_path = os.path.join(logdir, "episode_rewards.png")
-    plt.savefig(reward_plot_path)
-    plt.close()
-
-   # --- 修正後（生報酬＋移動平均を同一図に描画） ---
-    window = 10
-    rewards_smooth = (
-        pd.Series(rewards)
-        .rolling(window=window, min_periods=1)
-        .mean()
-        .to_numpy()
+    # --- 図の作成・保存 --------------------------------------------------
+    save_reward_and_loss_plots(
+        logdir=logdir,
+        monitor_csv=monitor_path,
+        loss_csv=os.path.join(logdir, "loss_history.csv"),
     )
-
-    plt.figure(figsize=(6, 4))
-    # 生報酬：薄い線
-    plt.plot(cum_steps, rewards, alpha=0.3, linewidth=1, label="Raw reward")
-    # 移動平均：濃い線
-    plt.plot(cum_steps, rewards_smooth, linewidth=2, label=f"Moving avg ({window} ep)")
-
-    plt.xlabel("Step")
-    plt.ylabel("Reward")
-    plt.title("Reward vs. Training Step")
-    plt.legend()
-    plt.tight_layout()
-
-    reward_plot_path = os.path.join(logdir, "step_rewards_both.png")
-    plt.savefig(reward_plot_path)
-    plt.close()
 
 
 

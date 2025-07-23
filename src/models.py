@@ -41,6 +41,7 @@ class ManipulabilityLoss:
             J = obs_batch[:, -6:].reshape(-1, 2, 3)
             w = torch.sqrt(torch.det(torch.bmm(J, J.transpose(1,2))) + 1e-8)
             manip_loss = -torch.mean(w) # 大きいほど可操作性が高いため最小化する
+            self.logger.record("train/manip_loss", manip_loss.detach().cpu().numpy())
 
         total_loss = (
             policy_loss
@@ -62,7 +63,8 @@ class ManipulabilityLoss:
             w = torch.sqrt(torch.det(torch.bmm(J, J.transpose(1,2))) + 1e-8)
             manip_loss = -torch.mean(w)
             actor_loss = actor_loss + self.manip_coef * manip_loss
-
+            self.logger.record("train/manip_loss", manip_loss.detach().cpu().numpy())
+            
         return (actor_loss, critic_loss, *rest)
     
 
@@ -74,14 +76,20 @@ class ManipulabilityLoss:
 class ExtendModel:
     def __init__(self, 
                 model_name :str ,
+                policy: str,
                 env,
+                device : str,
+                batch_size: int,
                 use_manip_loss : bool = False,
                 manip_coef: float = 0.1,
                 policy_kwargs :dict = None,
                 **kwargs,                
                 ):
         self.model_name = model_name
+        self.policy = policy
         self.env = env
+        self.device = device
+        self.batch_size = batch_size
         self.use_manip_loss = use_manip_loss
         self.manip_coef = manip_coef
         policy_kwargs = policy_kwargs or dict(net_arch=dict(pi=[256,256], vf=[256,256]))
@@ -96,17 +104,32 @@ class ExtendModel:
             raise ValueError(f"サポート外のモデルです: {model_name}")
 
         # エージェント生成
+        """
+        アルゴリズム特有の設定は個別に実施
+        """
+        algo_specific: dict[str, dict] = {
+            "PPO": dict(n_steps=kwargs.pop("n_steps", 2048)),
+            "SAC": dict(train_freq=kwargs.pop("train_freq", 1),
+                        gradient_steps=kwargs.pop("gradient_steps", 1),
+                        learning_starts=kwargs.pop("learning_starts", 10000)),
+            "TD3": dict(train_freq=kwargs.pop("train_freq", 1),
+                        gradient_steps=kwargs.pop("gradient_steps", 1),
+                        learning_starts=kwargs.pop("learning_starts", 10000)),
+        }
         self.agent = BaseCls(
-            'MlpPolicy',
-            env,
+            policy = self.policy,
+            env = self.env,
             verbose=1,
-            device='auto',
-            batch_size = 128,
+            device=self.device,
+            batch_size=self.batch_size,
             policy_kwargs=policy_kwargs,
             use_manip_loss=use_manip_loss,
             manip_coef=manip_coef,
-            **kwargs
+            **algo_specific[model_name],
+            **kwargs,
         )
+
+        
 
     def learn(self, *args, **kwargs):
         return self.agent.learn(*args, **kwargs)
