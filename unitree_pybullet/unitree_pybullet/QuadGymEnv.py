@@ -247,7 +247,7 @@ class QuadEnv(gym.Env):
         if self.control_mode == "PDcontrol":
             # 初期姿勢をホームポジションに設定
             self.q0 = np.array( self.initial_joint * 4, dtype=np.float32)   # 12 次元
-            # PDcontrol 部
+            # PDcontrol
             # targets = self._action_scale_rad * action
             targets = self.q0 + self._action_scale_rad * action
 
@@ -418,7 +418,7 @@ class QuadEnv(gym.Env):
     
     # 初期姿勢の設定
     def _set_initial_pose(self):
-        """Unitree A1 公式のスタンディングポーズを適用"""
+        """ 各脚関節をself.initial_jointの角度に設定 """
         # [hip, thigh, calf] の順に角度(rad)設定
         default_angles = np.array(self.initial_joint, dtype=np.float32)
         for leg in ("FL", "FR", "RL", "RR"):
