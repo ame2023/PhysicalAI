@@ -1,6 +1,6 @@
 seed: 1234
 
-unitree_model: 'a1' # {a1, aliengo, laikago}
+unitree_model: 'a1' # {a1, aliengo, ##laikago##}
 
 # agent設定
 policy: 'MlpPolicy'

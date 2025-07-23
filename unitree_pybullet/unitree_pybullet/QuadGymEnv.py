@@ -177,7 +177,7 @@ class QuadEnv(gym.Env):
         if self.model_name == "a1":
             self._robot = p.loadURDF(
                 robot_path,
-                [0, 0, 0.42],
+                [0, 0, 0.31],
                 useFixedBase=False,
                 flags=p.URDF_USE_SELF_COLLISION,
                 physicsClientId=self._cid,
@@ -185,7 +185,7 @@ class QuadEnv(gym.Env):
         elif self.model_name == "aliengo":
             self._robot = p.loadURDF(
                 robot_path,
-                [0, 0, 0.525],
+                [0, 0, 0.39],
                 useFixedBase=False,
                 flags=p.URDF_USE_SELF_COLLISION,
                 physicsClientId=self._cid,
@@ -217,6 +217,8 @@ class QuadEnv(gym.Env):
         self.leg_joints, self.leg_ee_link = mu.build_leg_maps(self._robot, self._cid) # 脚の関節とリンクのindexを取得
         self.actuated = (self.leg_joints["FR"] + self.leg_joints["FL"] + self.leg_joints["RR"] + self.leg_joints["RL"])
         self.num_joint = len(self.actuated) # = 12
+        # 初期姿勢の設定
+        self._set_initial_pose()
 
         #print("Num Joints", p.getNumJoints(self._robot, physicsClientId=self._cid))
         #print("DEBUG_A: after load local n_joints =", p.getNumJoints(self._robot, physicsClientId=self._cid))
@@ -235,6 +237,7 @@ class QuadEnv(gym.Env):
 
     def step(self, action: np.ndarray):
         action = np.clip(action, -1.0, 1.0)
+        
         self._ep_step += 1 
 
         if self.control_mode == "PDcontrol":
@@ -249,6 +252,7 @@ class QuadEnv(gym.Env):
             torques = self.Kp * (targets - qs) + self.Kd * (0.0 - qds)
             # トルクのクリッピング 
             torques = np.clip(torques,  -self.torque_scale, self.torque_scale)
+           
             #print("torques = ", torques)
             # トルク制御として適用
             for j, tau in zip(self.actuated,torques):
@@ -402,5 +406,20 @@ class QuadEnv(gym.Env):
         fall_height = pos[2] < height_th
         fall_angle  = abs(roll) > angle_th or abs(pitch) > angle_th
         return fall_height or fall_angle
+    
+    # 初期姿勢の設定
+    def _set_initial_pose(self):
+        """Unitree A1 公式のスタンディングポーズを適用"""
+        # [hip, thigh, calf] の順に角度(rad)設定
+        default_angles = np.array([0.0, 0.8, -1.5], dtype=np.float32)
+        for leg in ("FL", "FR", "RL", "RR"):
+            for k, jid in enumerate(self.leg_joints[leg]):
+                p.resetJointState(
+                    self._robot,
+                    jid,
+                    default_angles[k],
+                    targetVelocity=0.0,
+                    physicsClientId=self._cid,
+                )
 
         
