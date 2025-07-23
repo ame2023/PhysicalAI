@@ -7,6 +7,8 @@ import hydra
 from omegaconf import DictConfig
 import wandb
 from tqdm import tqdm
+import pandas as pd                 
+import matplotlib.pyplot as plt
 
 from src.utils import set_seed
 # from src.models import PPO
@@ -104,6 +106,7 @@ def main(cfg:DictConfig):
 
         env = DummyVecEnv([lambda:env])
         env = VecNormalize(env,
+                           training = True,
                             norm_obs=True,
                             norm_reward=True, 
                             clip_obs=10.)
@@ -152,6 +155,51 @@ def main(cfg:DictConfig):
                  callback = eval_callback,
                  progress_bar = True,
                  )
+
+
+    # --- 報酬推移プロット --------------------------------------------------
+    # Monitor の CSV を読み込み、エピソード報酬を可視化
+    monitor_df = pd.read_csv(monitor_path, skiprows=1)  # 先頭 1 行はヘッダコメントなので省く
+    rewards = monitor_df["r"].to_numpy()
+    steps_ep = monitor_df["l"].to_numpy()
+    cum_steps = np.cumsum(steps_ep)
+
+    plt.figure(figsize=(6, 4))
+    plt.plot(rewards)
+    plt.xlabel("Episode")
+    plt.ylabel("Reward")
+    plt.title("Episode Reward Over Training")
+    plt.tight_layout()
+
+    reward_plot_path = os.path.join(logdir, "episode_rewards.png")
+    plt.savefig(reward_plot_path)
+    plt.close()
+
+   # --- 修正後（生報酬＋移動平均を同一図に描画） ---
+    window = 50
+    rewards_smooth = (
+        pd.Series(rewards)
+        .rolling(window=window, min_periods=1)
+        .mean()
+        .to_numpy()
+    )
+
+    plt.figure(figsize=(6, 4))
+    # 生報酬：薄い線
+    plt.plot(cum_steps, rewards, alpha=0.3, linewidth=1, label="Raw reward")
+    # 移動平均：濃い線
+    plt.plot(cum_steps, rewards_smooth, linewidth=2, label=f"Moving avg ({window} ep)")
+
+    plt.xlabel("Step")
+    plt.ylabel("Reward")
+    plt.title("Reward vs. Training Step")
+    plt.legend()
+    plt.tight_layout()
+
+    reward_plot_path = os.path.join(logdir, "step_rewards_both.png")
+    plt.savefig(reward_plot_path)
+    plt.close()
+
 
 
     # --- モデル保存 ------------------------------------------------------

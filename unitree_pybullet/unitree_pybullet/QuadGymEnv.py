@@ -114,8 +114,8 @@ class QuadEnv(gym.Env):
         self.dt = 1.0 / 400.0 # シミュレーションの1stepあたりの経過時間
         self._prev_action = np.zeros(self.num_joint, dtype=np.float32)
         # PDゲイン
-        self.Kp = 30.0
-        self.Kd = 2
+        self.Kp = 20.0
+        self.Kd = 0.001
 
         
         self.fall_penalty = 300 # 転倒時のペナルティ
@@ -362,7 +362,7 @@ class QuadEnv(gym.Env):
     def _reward(self, obs: np.ndarray, action: np.ndarray) -> float:
         if self.reward_mode == "progress" and self.obs_mode in {"joint+base", "full"}:
             vx, vy = obs[31], obs[32]
-            target_vx, target_vy = 1.0, 0.0 #[m/s]
+            target_vx, target_vy = 0.8, 0.0 #[m/s]
             sigma_v = 0.25
             v_err_sq = (vx - target_vx) ** 2 + (vy - target_vy) ** 2
             return float(np.exp(-v_err_sq / sigma_v))
@@ -377,7 +377,7 @@ class QuadEnv(gym.Env):
             qdot   = obs[12:24]                  # 各関節角速度 [rad/s]
             torque = self._prev_action           # 1 ステップ前に実際に発生したトルク [Nm]
             power  = np.dot(torque, qdot)        # ∑ τ·ω = 機械的仕事率
-            beta   = 0.04                        # エネルギ重み (要チューニング)
+            beta   = 0.001                        # エネルギ重み (要チューニング)
 
             return float(progress - beta * power)
 
