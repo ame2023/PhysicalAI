@@ -59,7 +59,7 @@ class ManipulabilityLoss:
         actor_loss, critic_loss, *rest = losses
         
         if self.use_manip_loss:
-            J = kwargs["data"]["observation"][:, -6].reshape(-1, 2, 3)
+            J = kwargs["data"]["observation"][:, -6:].reshape(-1, 2, 3)
             w = torch.sqrt(torch.det(torch.bmm(J, J.transpose(1,2))) + 1e-8)
             manip_loss = -torch.mean(w)
             actor_loss = actor_loss + self.manip_coef * manip_loss
@@ -137,27 +137,6 @@ class ExtendModel:
     def __getattr__(self, name):
         return getattr(self.agent, name)
     
-
-
-
-    def loss_actor_critic(   # v2 系の例
-        self,
-        values, log_prob, entropy, advantages, returns
-    ):
-        # --- SB3 デフォルトの損失 ---
-        policy_loss, value_loss, entropy_loss = super().loss_actor_critic(
-            values, log_prob, entropy, advantages, returns
-        )
-
-        # --- 追加したい正則化や表現学習 loss など ---
-        my_term = torch.mean(log_prob**2)      # 例：分散抑制項
-        total_loss = (
-            policy_loss
-            + self.vf_coef * value_loss
-            - self.ent_coef * entropy_loss
-            + 0.01 * my_term                # ←自分で係数を決める
-        )
-        return total_loss, policy_loss, value_loss, entropy_loss
 
 
 # model = PPOWithAuxLoss(

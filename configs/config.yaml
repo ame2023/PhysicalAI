@@ -9,7 +9,7 @@ n_steps: 2048
 total_steps: 20480 #参考2048*500 = 1,024,000 # n_step*num_update
 device: "cpu" # {"cpu", "cuda", "auto"}
 minibatch_size: 128
-use_manip_loss: True
+use_manip_loss: False
 manip_coef: 0.01
 
 use_wandb: False
