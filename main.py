@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 import gymnasium as gym
 import hydra
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 import wandb
 from tqdm import tqdm
 import pandas as pd                 
@@ -28,7 +28,7 @@ from src.make_figure import save_reward_and_loss_plots
 
 
 
-# ---- 損失ロガー -------------------------------------------------------------
+# ---- ロスのロガー -------------------------------------------------------------
 class LossLoggerCallback(BaseCallback):
     def __init__(self, logdir, verbose=0):
         super().__init__(verbose=verbose)
@@ -37,7 +37,7 @@ class LossLoggerCallback(BaseCallback):
     def _on_step(self) -> bool:
         # logger.dump() 直後なので train/xxx_loss が揃っている
         kv = self.model.logger.name_to_value
-        if any(k.startswith("train/") and "loss" in k for k in kv):
+        if any(k.startswith("train/") for k in kv):
             self.records.append({k: kv[k] for k in kv if k.startswith("train/")})
         return True
 
@@ -64,40 +64,32 @@ def main(cfg:DictConfig):
     if cfg.use_wandb:
         run = wandb.init(mode="online",
                          dir=logdir,
-                         project=f"{cfg.unitree_model}_ppo_test",
+                         project=f"{cfg.unitree_model}_train",
                          config=dict(cfg)
                          )
-
-
-    # --- 並列環境の作成 ------------------------------------------------------
-    # def make_env(rank:int):
-    #     def _init():
-    #         env = QuadEnv(model=cfg.unitree_model, 
-    #                       render=False,
-    #                       max_steps_per_episode=cfg.max_steps_per_episode,
-    #                       fall_height_th = cfg.fall_height_th,  
-    #                       fall_angle_th = cfg.fall_angle_th,
-    #                       )
-    #         env.reset(seed = cfg.seed + rank)
-    #         env.action_space.seed(cfg.seed + rank)
-    #         return env
-    #     return _init
-    def make_env_subproc(rank: int):
+    cfg_dict: dict = OmegaConf.to_container(cfg, resolve=True)# DictConfig -> dict
+    # ---- 環境作成----------------------------------------------------
+    def make_env_subproc(rank: int, cfg_dict: dict):
         def _init():
-            env = QuadEnv(model=cfg.unitree_model, 
+            env = QuadEnv(model=cfg_dict["unitree_model"], 
                       render=False,
-                      max_steps_per_episode=cfg.max_steps_per_episode,
-                      fall_height_th = cfg.fall_height_th,  
-                      fall_angle_th = cfg.fall_angle_th,
+                      max_steps_per_episode=cfg_dict["max_steps_per_episode"],
+                      fall_height_th = cfg_dict["fall_height_th"],  
+                      fall_angle_th = cfg_dict["fall_angle_th"],
+                      obs_mode=cfg_dict["obs_mode"],
+                      action_scale_deg=cfg_dict["action_scale_deg"],
+                      control_mode=cfg_dict["control_mode"],
+                      torque_scale_Nm=cfg_dict["torque_scale_Nm"],
+                      reward_mode=cfg_dict["reward_mode"],
                       )
             #env = SkipFrame(env, skip = cfg.skip_freq)
-            env.reset(seed=cfg.seed+rank)
-            env.action_space.seed(cfg.seed+rank)
+            env.reset(seed=cfg_dict["seed"]+rank)
+            env.action_space.seed(cfg_dict["seed"]+rank)
             return env
         return _init
     
     if cfg.multi_env:
-        env = SubprocVecEnv([make_env_subproc(i) for i in range(cfg.num_envs)], start_method = "spawn") 
+        env = SubprocVecEnv([make_env_subproc(i, cfg_dict) for i in range(cfg.num_envs)], start_method = "spawn") 
         #env = AsyncVectorEnv([make_env(i) for i in range(cfg.num_envs)])
         env = VecNormalize(env,
                             norm_obs=True,
@@ -160,7 +152,7 @@ def main(cfg:DictConfig):
     #            batch_size = cfg.minibatch_size,
     #            policy_kwargs = policy_kwargs
     #             )
-    agent = ExtendModel(
+    agent = ExtendModel.create(
         model_name=cfg.algo,          # 'PPO' / 'SAC' / 'TD3'
         policy = cfg.policy,
         env=env,
@@ -173,7 +165,7 @@ def main(cfg:DictConfig):
         )
 
     # --- 評価環境とコールバックの設定 --------------------------------
-    eval_env = SubprocVecEnv([make_env_subproc(i+100) for i in range(cfg.num_eval_envs)], start_method = "spawn") 
+    eval_env = SubprocVecEnv([make_env_subproc(i+100, cfg_dict) for i in range(cfg.num_eval_envs)], start_method = "spawn") 
     eval_env = VecNormalize(eval_env, training = False, norm_obs=True, norm_reward=cfg.norm_reward, clip_obs=10.)
     eval_env = VecMonitor(eval_env, filename=os.path.join(logdir, "eval_monitor.csv"))
     eval_env.reset()
@@ -207,7 +199,7 @@ def main(cfg:DictConfig):
 
 
     # --- モデル保存 ------------------------------------------------------
-    agent.save(os.path.join(logdir, f"ppo_{cfg.unitree_model}.zip"))
+    agent.save(os.path.join(logdir, f"{cfg.algo.lower()}_{cfg.unitree_model}.zip"))
     # 統計情報の保存（正規化用） #
     env.save(os.path.join(logdir, "vecnormalize.pkl"))
 

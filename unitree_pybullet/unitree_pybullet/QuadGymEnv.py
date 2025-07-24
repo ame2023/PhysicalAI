@@ -118,7 +118,7 @@ class QuadEnv(gym.Env):
         self.Kd = 1
 
         
-        self.fall_penalty = 300 # 転倒時のペナルティ
+        self.fall_penalty = 100 # 転倒時のペナルティ
 
         # 初期姿勢（ホームポジション）
         self.initial_joint = [0.0, 0.8, -1.5] #[hip, thigh, calf] の順に角度(rad)設定
@@ -196,7 +196,7 @@ class QuadEnv(gym.Env):
             )
 
         #####################################
-        # どこでも良いので一度だけ実行して確認
+        # ↓ デバッグに使用
         #for j in range(p.getNumJoints(self._robot, physicsClientId=self._cid)):
         #    name = p.getJointInfo(self._robot, j, physicsClientId=self._cid)[1].decode()
         #    print(j, name)
@@ -305,8 +305,13 @@ class QuadEnv(gym.Env):
         if terminated or truncated:
             self._ep_step = 0
 
+        # 可操作度の計算 
+        m4 = mu.compute_leg_manipulability(
+            self._robot, self.leg_joints,
+            self.leg_ee_link,
+            self._cid)
+        info = {"manip_w": np.asarray(m4, dtype=np.float32)}
 
-        info = {}
         if gymnasium_available:
             return obs, reward, terminated, truncated, info
         else:
@@ -345,6 +350,8 @@ class QuadEnv(gym.Env):
         #self._cid = p.connect(mode, options="--search-path="+self._data_path)
         p.setAdditionalSearchPath(self._data_path, physicsClientId=self._cid)
 
+
+    # ---- 観測データの作成 ---------------------------------------------------------------------------------
     def _get_obs(self) -> np.ndarray:
         # obs_mode in {"joint","joint+base","nonManip", "full"}
         qs = [p.getJointState(self._robot, j, physicsClientId=self._cid)[0] for j in self.actuated]
@@ -367,7 +374,8 @@ class QuadEnv(gym.Env):
             obs += list(m4) 
 
         return np.array(obs, dtype=np.float32)
-
+    
+    # ------ 報酬定義 ---------------------------------------------------------
     def _reward(self, obs: np.ndarray, action: np.ndarray) -> float:
         if self.reward_mode == "Progress":
             vx, vy = obs[31], obs[32]
@@ -390,14 +398,12 @@ class QuadEnv(gym.Env):
 
             return float(progress - beta * power)
 
-        
-
         # fallback: joint-angle penalty
         q = obs[:12]
         return -float(np.sum(q ** 2))
 
 
-
+    # ---- 転倒の定義 ----------------------------------------------------
     def _robot_fallen(self) -> bool:
         """胴体の高さと姿勢から転倒を判定する
 
@@ -416,7 +422,7 @@ class QuadEnv(gym.Env):
         fall_angle  = abs(roll) > angle_th or abs(pitch) > angle_th
         return fall_height or fall_angle
     
-    # 初期姿勢の設定
+    # ---- 初期姿勢の設定 -----------------------------------------------
     def _set_initial_pose(self):
         """ 各脚関節をself.initial_jointの角度に設定 """
         # [hip, thigh, calf] の順に角度(rad)設定

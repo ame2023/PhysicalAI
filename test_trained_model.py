@@ -108,8 +108,8 @@ if __name__ == "__main__":
     env = VecMonitor(env, filename=os.path.join(cfg.results_dir, "monitor.csv"))
 
     # モデル読み込み
-    model = PPO.load(args.model_path, env=env)
-
+    # model = PPO.load(args.model_path, env=env)
+    model = ExtendModel.load(args.model_path, env= env, device = "cpu", model_name = cfg.algo)
 
 
     # ------------------------- リアルタイム同期 -------------------------
@@ -134,6 +134,7 @@ if __name__ == "__main__":
     # VecEnv なので obs.shape = (1, obs_dim)
     for ep in range(1, args.episodes + 1):
         seed = cfg.seed + ep
+        env.seed(seed)
         obs  = env.reset()
         ep_ret = 0.0
         ep_len = 0
@@ -144,11 +145,11 @@ if __name__ == "__main__":
             if len(step_out) == 5:  # Gymnasium
                 obs, reward, terminated, truncated, infos = step_out
                 done   = terminated[0] or truncated[0]
-                rew_scalar = reward[0]
+                rew_scalar = reward
             else:                   # Classic Gym
                 obs, reward, done, infos = step_out
-                rew_scalar = reward[0] if hasattr(reward, "__getitem__") else reward
-            ep_ret += float(reward[0])
+                rew_scalar = reward if hasattr(reward, "__getitem__") else reward
+            ep_ret += float(reward)
             ep_len += 1
 
             # ------ 等速同期 ------

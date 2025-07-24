@@ -9,8 +9,8 @@ n_steps: 2048
 total_steps: 20480 #参考2048*500 = 1,024,000 # n_step*num_update
 device: "cpu" # {"cpu", "cuda", "auto"}
 minibatch_size: 128
-use_manip_loss: False
-manip_coef: 0.01
+use_manip_loss: True
+manip_coef: 10
 
 use_wandb: False
 
@@ -18,9 +18,9 @@ use_wandb: False
 render : True # 動画出力 並列化する場合は自動的にFasle
 max_steps_per_episode: 4000  # max_steps_per_episode = 4000かつ 1step =1/400なら １episode = 10sのシミュレーション
 # skip_freq: 1 # 4 エージェントはskip_frewq回同じ行動を連続してとる(現在は無効にしている。制御周期のずれの調整が困難なため)
-fall_height_th: 0.25     # [m] 胴体の高さが25cm以下で転倒判定
+fall_height_th: 0.20     # [m] 胴体の高さが25cm以下で転倒判定
 fall_angle_th: 1.0       # [rad] 胴体の角度(roll, pitch)が 1.0[rad]≒60[deg]  以上で転倒判定
-obs_mode : "full"        # {"joint", "joint+base","nonManip","full"}
+obs_mode : "nonManip"        # {"joint", "joint+base","nonManip","full"}
 control_mode: "PDcontrol" # {"PDcontrol" , "torque"}
 action_scale_deg : 180   # [deg] アクションのスケール[0, 180] (control_mode == "PDcontrol")
 torque_scale_Nm: 30.0    # [Nm] トルクのスケール(control_mode = "torque")&クリッピング最大値 (a1:30, aliengo:50) 
