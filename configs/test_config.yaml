@@ -1,9 +1,18 @@
 # configs/test_config.yaml
 defaults:
-  - config.yaml   # ベースの学習用設定を読み込む
-  - _self_        # このファイル自身を Hydra に認識させる
+  - config.yaml   # まず学習用の既定値を読み込む
+  - _self_
 
-# ここでキーを宣言しておく
-trained_model_path: null   # CLI や別ファイルから上書き可能に
-seed_offset: 1000           # オフセット値のデフォルト
+# === パス類（評価用） ===
+trained_model_path: null          # ここを CLI から渡す想定
 results_dir: "./test_results"
+logdir: "${results_dir}/logs"     # 評価ログの出力先（任意）
+
+# === 評価時に上書きしたいパラメータ ===
+use_manip_loss: false             # 推論のみならロスへは入れない
+calculate_manip: true             # ただしログ・可視化のためには計算しておく
+manip_agg: "mean"                 # 後で make_figure.py に渡す表示用の集約
+custom_agg_py: null               # 必要になったら "pkg.mod:func" で指定
+
+# === 乱数種（任意） ===
+seed_offset: 1000                 # 既定の seed に足すなどは、スクリプト側で扱うと安全

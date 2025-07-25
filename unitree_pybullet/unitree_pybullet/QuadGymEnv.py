@@ -73,6 +73,7 @@ class QuadEnv(gym.Env):
                  control_mode: str = "PDcontrol", # 制御方法を指定 PDcontrol or torque
                  torque_scale_Nm: float = 60.0,  # [Nm] トルクのスケールを指定
                  reward_mode: str = 'Progress',
+                 calculate_manip: bool = True,
                  ):
         
         if model not in self._SUPPORTED_MODELS:
@@ -103,6 +104,10 @@ class QuadEnv(gym.Env):
         self.torque_scale = torque_scale_Nm
         # 報酬関数の指定
         self.reward_mode = reward_mode 
+        # 可操作度計算のフラグ
+        self.calculate_manip = bool(calculate_manip)
+        if self.obs_mode == "full" and not self.calculate_manip:
+            raise ValueError("obs_mode='full' を使う場合は calculate_manip=True にしてください。")
 
         self._cid: Optional[int] = None
         self._robot: Optional[int] = None
@@ -291,7 +296,20 @@ class QuadEnv(gym.Env):
             
         p.stepSimulation(physicsClientId=self._cid)
 
-        obs = self._get_obs()
+        
+        # 可操作度の計算
+        """
+        可操作度をロスや観測に入れたくはないが、比較のために計算したい場合があるため
+        ここで計算して、観測に追加したい場合は再利用する
+        """
+        m4 = None
+        if self.calculate_manip:
+            m4 = mu.compute_leg_manipulability(
+                self._robot, self.leg_joints,
+                self.leg_ee_link,
+                self._cid)
+
+        obs = self._get_obs(manip_cached=m4)
         reward = self._reward(obs, action)
 
         # 転倒時のペナルティ        
@@ -305,17 +323,18 @@ class QuadEnv(gym.Env):
         if terminated or truncated:
             self._ep_step = 0
 
-        # 可操作度の計算 
-        m4 = mu.compute_leg_manipulability(
-            self._robot, self.leg_joints,
-            self.leg_ee_link,
-            self._cid)
-        info = {"manip_w": np.asarray(m4, dtype=np.float32)}
+        
+
+        info = {}
+        if m4 is not None:
+            info["manip_w"] = np.asarray(m4, dtype=np.float32)
 
         if gymnasium_available:
             return obs, reward, terminated, truncated, info
         else:
             return obs, reward, terminated, info
+
+
 
     def close(self):
         if self._cid is not None:
@@ -352,7 +371,7 @@ class QuadEnv(gym.Env):
 
 
     # ---- 観測データの作成 ---------------------------------------------------------------------------------
-    def _get_obs(self) -> np.ndarray:
+    def _get_obs(self, manip_cached: Optional[np.ndarray] = None) -> np.ndarray:
         # obs_mode in {"joint","joint+base","nonManip", "full"}
         qs = [p.getJointState(self._robot, j, physicsClientId=self._cid)[0] for j in self.actuated]
         qdots = [p.getJointState(self._robot, j, physicsClientId=self._cid)[1] for j in self.actuated]
@@ -367,11 +386,16 @@ class QuadEnv(gym.Env):
             obs += list(self._prev_action)
 
         if self.obs_mode == "full":
-            m4 = mu.compute_leg_manipulability(
-                    self._robot, self.leg_joints,
-                    self.leg_ee_link,
-                    self._cid)
-            obs += list(m4) 
+            if not self.calculate_manip:
+                raise RuntimeError("obs_mode='full' で calculate_manip=False は許可されていません。")
+            if manip_cached is None:# すでに計算されている場合は再利用（キャッシュに無ければ計算）
+                m4 = mu.compute_leg_manipulability(
+                        self._robot, self.leg_joints,
+                        self.leg_ee_link,
+                        self._cid)
+            else:
+                m4 = manip_cached
+            obs += list(m4)
 
         return np.array(obs, dtype=np.float32)
     

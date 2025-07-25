@@ -1,35 +1,62 @@
+# =========================
+# 乱数・再現性
+# =========================
 seed: 1234
 
-unitree_model: 'a1' # {a1, aliengo, ##laikago##}
+# =========================
+# 物理モデル
+# =========================
+unitree_model: 'a1'          # {"a1", "aliengo", ##laikago##}
 
-# agent設定
-algo: 'PPO' # {"PPO", "SAC", "TD3"}
+# =========================
+# 学習アルゴリズム共通
+# =========================
+algo: 'PPO'                  # {"PPO", "SAC", "TD3"}
 policy: 'MlpPolicy'
-n_steps: 2048
-total_steps: 20480 #参考2048*500 = 1,024,000 # n_step*num_update
-device: "cpu" # {"cpu", "cuda", "auto"}
-minibatch_size: 128
-use_manip_loss: True
-manip_coef: 10
+device: "cpu"                # {"cpu", "cuda", "auto"}
+total_steps: 20480           # 参考2048*500 = 1,024,000 # n_step*num_update
+minibatch_size: 128          # PPOならミニバッチ、SAC/TD3なら replay の batch_size と揃えるなど
 
-use_wandb: False
+# --- PPO で主に使う ---
+n_steps: 2048                # 1回の rollouts 長 (PPO/A2C系)
+# n_epochs: 10               # （必要なら追加）
+# gamma: 0.99                # （必要なら追加）
+# gae_lambda: 0.95           # （必要なら追加）
 
-# 環境設定
-render : True # 動画出力 並列化する場合は自動的にFasle
+# =========================
+# 可操作度（Manipulability）関連
+# =========================
+calculate_manip: True       # True にすると use_manip_loss=False でも可操作度を計算して info/obs に入れる
+use_manip_loss: False        # True なら学習ロスに可操作度を加える（False でもログは可能）
+manip_coef: 0.01             # ロスへ入れる係数 W
+# 
+manip_agg: "mean"            # {"mean","min","max","sum","custom"} ← ロスへ入れる直前の4脚集約方法
+custom_agg_py: null          # 例: "myproj.custom_aggs:geo_mean" （manip_agg="custom" のとき必須）
+
+# =========================
+# ロギング / 可視化 / 追跡
+# =========================
+use_wandb: False             # True の場合、ManipLoggerCallback / LossLoggerCallback からもW&Bに流せる
+
+# =========================
+# 環境（Env）設定
+# =========================
+render: True                 # 動画出力。並列化時は自動で False 
 max_steps_per_episode: 4000  # max_steps_per_episode = 4000かつ 1step =1/400なら １episode = 10sのシミュレーション
 # skip_freq: 1 # 4 エージェントはskip_frewq回同じ行動を連続してとる(現在は無効にしている。制御周期のずれの調整が困難なため)
-fall_height_th: 0.20     # [m] 胴体の高さが25cm以下で転倒判定
-fall_angle_th: 1.0       # [rad] 胴体の角度(roll, pitch)が 1.0[rad]≒60[deg]  以上で転倒判定
-obs_mode : "nonManip"        # {"joint", "joint+base","nonManip","full"}
-control_mode: "PDcontrol" # {"PDcontrol" , "torque"}
-action_scale_deg : 180   # [deg] アクションのスケール[0, 180] (control_mode == "PDcontrol")
-torque_scale_Nm: 30.0    # [Nm] トルクのスケール(control_mode = "torque")&クリッピング最大値 (a1:30, aliengo:50) 
-reward_mode: "Progress"  # {"Progress","EnergeticProgress"}
-
-norm_reward: False # 基本はFalse。PPOのみTrueにすると学習が安定する
-
+fall_height_th: 0.20         # [m] 胴体の高さが 0.20m 以下で転倒判定
+fall_angle_th: 1.0           # [rad] |roll| or |pitch| > 1.0rad (~60deg) で転倒判定
+obs_mode: "nonManip"         # {"joint","joint+base","nonManip","full"}
+control_mode: "PDcontrol"    # {"PDcontrol","torque"}
+action_scale_deg: 180        # [deg] PDcontrol 時の ±スケール
+torque_scale_Nm: 30.0        # [Nm] torque 時のスケール（クリップ上限）
+reward_mode: "Progress"      # {"Progress","EnergeticProgress"}
+norm_reward: False           # PPOのみ True で学習安定化するケースあり（基本 False）
 # 環境並列化
 multi_env: False
 num_envs: 8
-# 評価環境
+
+# =========================
+# 評価
+# =========================
 num_eval_envs: 5

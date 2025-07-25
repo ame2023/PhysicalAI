@@ -1,6 +1,13 @@
+#########################################################
+# SB3をベースに任意で可操作度をロスに追加できるようにしている
+# 可操作度(manip_w)を記録できるようにバッファーを拡張
+# 同じくcollect_rollout()に差し替え
+# ExtendModel()に統合
+#########################################################
 from __future__ import annotations
 from typing import Any, Dict, Optional, Tuple, Union
 
+import importlib
 import numpy as np
 import torch as th
 from torch import nn
@@ -16,7 +23,7 @@ from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
 
 from .rollout_buffer_ext import (
     RolloutBufferWithManip,
-    RolloutBufferSamplesWithManip,  # あなたが前回送った実装に合わせて namedtuple を export してください
+    RolloutBufferSamplesWithManip,  
     ReplayBufferWithManip
 )
 
@@ -24,17 +31,75 @@ from .rollout_buffer_ext import (
 # 共通 Mixin
 # =========================================================
 class ManipulabilityLossMixin:
-    def __init__(self, *args, use_manip_loss: bool = False, manip_coef: float = 0.0, **kwargs):
+    def __init__(
+        self,
+        *args,
+        use_manip_loss: bool = False,
+        manip_coef: float = 0.0,
+        manip_agg: str = "mean",
+        custom_agg_py: Optional[str] = None,
+        **kwargs
+    ):
         self.use_manip_loss = use_manip_loss
         self.manip_coef = manip_coef
+        self.manip_agg = manip_agg
+        self.custom_agg_py = custom_agg_py
+        self._custom_agg_fn = self._load_custom_agg(custom_agg_py)
         super().__init__(*args, **kwargs)
 
+    # ---------- aggregation helpers ----------
+    def _load_custom_agg(self, custom_agg_py: Optional[str]):
+        if custom_agg_py is None:
+            return None
+        if ":" not in custom_agg_py:
+            raise ValueError("custom_agg_py は 'module.path:func_name' 形式で指定してください")
+        mod_path, fn_name = custom_agg_py.split(":")
+        mod = importlib.import_module(mod_path)
+        return getattr(mod, fn_name)
+
+    def _agg_per_sample(self, w: th.Tensor) -> th.Tensor:
+        """
+        w: (batch, 4) を想定。
+        戻り値: (batch,) の 1次元テンソル（サンプル単位に 4脚を集約した値）
+        """
+        if w.ndim == 1:
+            w = w.unsqueeze(0)  # (1, 4)
+        if self.manip_agg == "mean":
+            return w.mean(dim=-1)
+        elif self.manip_agg == "min":
+            return w.min(dim=-1).values
+        elif self.manip_agg == "max":
+            return w.max(dim=-1).values
+        elif self.manip_agg == "sum":
+            return w.sum(dim=-1)
+        elif self.manip_agg == "custom":
+            if self._custom_agg_fn is None:
+                raise ValueError("manip_agg='custom' ですが custom_agg_py が設定されていません")
+            out = self._custom_agg_fn(w)  # 期待: (batch,)
+            if not isinstance(out, th.Tensor):
+                raise TypeError("custom_agg_fn は torch.Tensor を返す必要があります")
+            if out.ndim != 1 or out.shape[0] != w.shape[0]:
+                raise ValueError("custom_agg_fn は shape=[batch] の 1次元 Tensor を返す必要があります")
+            return out.to(w.device)
+        else:
+            raise ValueError(f"Unknown manip_agg: {self.manip_agg}")
 
     def _manip_loss_from_batch(self, manip_w: Optional[th.Tensor]) -> th.Tensor:
         if (not self.use_manip_loss) or (manip_w is None):
             return th.zeros((), device=self.device)
-        # 可操作度（4脚平均）を「大きくしたい」= actor_loss に -coef * mean を足す
-        return - self.manip_coef * manip_w.mean()
+
+        # manip_w: (batch, 4) を想定
+        per_sample = self._agg_per_sample(manip_w)  # (batch,)
+        scalar = per_sample.mean()  # バッチ平均
+
+        # 可操作度（大きくしたい）→ -coef * scalar を policy_loss に足す
+        loss_term = - self.manip_coef * scalar
+
+        if hasattr(self, "logger"):
+            self.logger.record("train/manip_scalar", float(scalar.item()))
+            self.logger.record("train/manip_agg", self.manip_agg)
+
+        return loss_term
 
 
 # =========================================================
@@ -57,6 +122,7 @@ class PPOWithManip(ManipulabilityLossMixin, PPO):
             n_envs=self.n_envs,
             n_legs=4,
         )
+
     def collect_rollouts(self, env, callback, rollout_buffer, n_rollout_steps: int) -> bool:
         assert self._last_obs is not None, "No previous observation was provided"
         self.policy.set_training_mode(False)
@@ -104,15 +170,11 @@ class PPOWithManip(ManipulabilityLossMixin, PPO):
         callback.on_rollout_end()
         return True
 
-    
-
-
     def train(self) -> None:
         self.policy.set_training_mode(True)
         # Update optimizer learning rate
         self._update_learning_rate(self.policy.optimizer)
 
-        # ★ ここでスケジューラを実数に評価
         clip_range = self.clip_range(self._current_progress_remaining) if callable(self.clip_range) else self.clip_range
         clip_range_vf = (
             self.clip_range_vf(self._current_progress_remaining)
@@ -152,13 +214,12 @@ class PPOWithManip(ManipulabilityLossMixin, PPO):
                 # Entropy loss
                 entropy_loss = -th.mean(entropy)
 
-                # ★ 可操作度ロス
+                # 可操作度ロス
                 if self.use_manip_loss:
                     m_loss = self._manip_loss_from_batch(rollout_data.manip_w)
                     policy_loss = policy_loss + m_loss
                     self.logger.record("train/manip_loss", float(m_loss.item()))
                     self.logger.record("train/manip_metric_only", float(rollout_data.manip_w.mean().item()))
-
 
                 loss = policy_loss + self.ent_coef * entropy_loss + self.vf_coef * value_loss
 
@@ -194,7 +255,6 @@ class PPOWithManip(ManipulabilityLossMixin, PPO):
             self.logger.record("train/clip_range_vf", float(clip_range_vf))
 
 
-
 # =========================================================
 # SAC（Off-policy）
 # =========================================================
@@ -215,7 +275,6 @@ class SACWithManip(ManipulabilityLossMixin, SAC):
             handle_timeout_termination=getattr(self, "handle_timeout_termination", True),
             n_legs=4,
         )
-
 
     def train(self, gradient_steps: int, batch_size: int = 256) -> None:
         self.policy.set_training_mode(True)
@@ -289,7 +348,6 @@ class SACWithManip(ManipulabilityLossMixin, SAC):
         self.logger.record("train/actor_loss", float(np.mean(actor_losses)))
         self.logger.record("train/critic_loss", float(np.mean(critic_losses)))
 
-        
 
 # =========================================================
 # TD3（Off-policy）
@@ -300,7 +358,7 @@ class TD3WithManip(ManipulabilityLossMixin, TD3):
 
     def _setup_model(self) -> None:
         super()._setup_model()
-        # ★ ReplayBuffer を manip 対応に差し替え
+        #  ReplayBuffer を manip 対応に差し替え
         self.replay_buffer = ReplayBufferWithManip(
             self.buffer_size,
             self.observation_space,
@@ -311,7 +369,6 @@ class TD3WithManip(ManipulabilityLossMixin, TD3):
             handle_timeout_termination=getattr(self, "handle_timeout_termination", True),
             n_legs=4,
         )
-
 
     def train(self, gradient_steps: int, batch_size: int = 100) -> None:
         # ほぼ SB3 の TD3.train() を踏襲し、actor_loss に manip_loss を追加
@@ -387,48 +444,29 @@ class ExtendModel:
         device: str,
         batch_size: int,
         policy_kwargs: dict,
+        manip_agg: str = "mean",
+        custom_agg_py: Optional[str] = None,
         **kwargs,
     ):
         algo = model_name.upper()
+        common = dict(
+            verbose=1,
+            seed=seed,
+            device=device,
+            batch_size=batch_size,
+            use_manip_loss=use_manip_loss,
+            manip_coef=manip_coef,
+            manip_agg=manip_agg,
+            custom_agg_py=custom_agg_py,
+            policy_kwargs=policy_kwargs,
+            **kwargs,
+        )
         if algo == "PPO":
-            return PPOWithManip(
-                policy,
-                env,
-                verbose=1,
-                seed=seed,
-                device=device,
-                batch_size=batch_size,
-                use_manip_loss=use_manip_loss,
-                manip_coef=manip_coef,
-                policy_kwargs=policy_kwargs,
-                **kwargs,
-            )
+            return PPOWithManip(policy, env, **common)
         elif algo == "SAC":
-            return SACWithManip(
-                policy,
-                env,
-                verbose=1,
-                seed=seed,
-                device=device,
-                batch_size=batch_size,
-                use_manip_loss=use_manip_loss,
-                manip_coef=manip_coef,
-                policy_kwargs=policy_kwargs,
-                **kwargs,
-            )
+            return SACWithManip(policy, env, **common)
         elif algo == "TD3":
-            return TD3WithManip(
-                policy,
-                env,
-                verbose=1,
-                seed=seed,
-                device=device,
-                batch_size=batch_size,
-                use_manip_loss=use_manip_loss,
-                manip_coef=manip_coef,
-                policy_kwargs=policy_kwargs,
-                **kwargs,
-            )
+            return TD3WithManip(policy, env, **common)
         else:
             raise ValueError(f"Unsupported algorithm: {model_name}")
 
