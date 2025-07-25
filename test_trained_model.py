@@ -70,6 +70,7 @@ def make_env(cfg, seed: int = 0):
         control_mode=cfg.control_mode,
         torque_scale_Nm=cfg.torque_scale_Nm,
         reward_mode=cfg.reward_mode,
+        calculate_manip = (cfg.calculate_manip or cfg.use_manip_loss),
     )
     os.makedirs(cfg.results_dir, exist_ok=True)
     #env = SkipFrame(env, skip=cfg.skip_freq)

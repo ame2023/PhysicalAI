@@ -25,29 +25,8 @@ from unitree_pybullet.unitree_pybullet import QuadEnv
 from src.models import ExtendModel
 from src.SkipFrame import SkipFrame
 from src.make_figure import save_reward_and_loss_plots
+from src.callbacks import ManipLoggerCallback, LossLoggerCallback
 
-
-
-# ---- ロスのロガー -------------------------------------------------------------
-class LossLoggerCallback(BaseCallback):
-    def __init__(self, logdir, verbose=0):
-        super().__init__(verbose=verbose)
-        self.logdir, self.records = logdir, []
-
-    def _on_step(self) -> bool:
-        # logger.dump() 直後なので train/xxx_loss が揃っている
-        kv = self.model.logger.name_to_value
-        if any(k.startswith("train/") for k in kv):
-            self.records.append({k: kv[k] for k in kv if k.startswith("train/")})
-        return True
-
-    def _on_training_end(self):
-        if self.records:
-            pd.DataFrame(self.records).to_csv(
-                os.path.join(self.logdir, "loss_history.csv"), index=False
-            )
-
-# ------------------------------------------- #
 
 @hydra.main(version_base = None, 
             config_path = "configs",# config.yamlファイルのパス
@@ -81,6 +60,7 @@ def main(cfg:DictConfig):
                       control_mode=cfg_dict["control_mode"],
                       torque_scale_Nm=cfg_dict["torque_scale_Nm"],
                       reward_mode=cfg_dict["reward_mode"],
+                      calculate_manip = cfg_dict["calculate_manip"] or cfg_dict["use_manip_loss"]
                       )
             #env = SkipFrame(env, skip = cfg.skip_freq)
             env.reset(seed=cfg_dict["seed"]+rank)
@@ -112,6 +92,7 @@ def main(cfg:DictConfig):
                       control_mode = cfg.control_mode, # 制御方法を指定 PDcontrol or torque
                       torque_scale_Nm = cfg.torque_scale_Nm,  # [Nm] トルクのスケールを指定
                       reward_mode = cfg.reward_mode,
+                      calculate_manip = (cfg.calculate_manip or cfg.use_manip_loss),
                       )
         #env = SkipFrame(env, skip = cfg.skip_freq)
         # 乱数シード固定
@@ -158,6 +139,8 @@ def main(cfg:DictConfig):
         env=env,
         use_manip_loss=cfg.use_manip_loss,
         manip_coef=cfg.manip_coef,
+        manip_agg=cfg.manip_agg,
+        custom_agg_py=cfg.custom_agg_py,
         seed=cfg.seed,
         device=cfg.device,
         batch_size=cfg.minibatch_size,
@@ -181,9 +164,12 @@ def main(cfg:DictConfig):
 
     # --- 学習 ------------------------------------------------------
     loss_logger = LossLoggerCallback(logdir)
+    # 可操作度は４脚の平均値をステップ単位で記録（）
+    manip_logger = ManipLoggerCallback(logdir, use_wandb=cfg.use_wandb)
+
     agent.learn(total_timesteps = cfg.total_steps,
                  reset_num_timesteps=False,
-                 callback = [eval_callback, loss_logger],
+                 callback = [eval_callback, loss_logger, manip_logger],
                  progress_bar = True,
                  )
 
@@ -191,10 +177,12 @@ def main(cfg:DictConfig):
     # --- 報酬推移プロット --------------------------------------------------
     # --- 図の作成・保存 --------------------------------------------------
     save_reward_and_loss_plots(
-        logdir=logdir,
-        monitor_csv=monitor_path,
-        loss_csv=os.path.join(logdir, "loss_history.csv"),
-    )
+    logdir=logdir,
+    monitor_csv=os.path.join(logdir, "monitor.csv"),
+    loss_csv=os.path.join(logdir, "loss_history.csv"),
+    manip_csv=os.path.join(logdir, "manip_history.csv"),
+    manip_agg=cfg.manip_agg
+)
 
 
 

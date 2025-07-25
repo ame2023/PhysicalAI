@@ -4,8 +4,18 @@
 # ReplayBuffer / RolloutBuffer の拡張。
 # SB3==2.6.0 対応。PPO/SAC/TD3 すべてでミニバッチに同期。
 # ------------------------------------------------------------
+"""
+目的: PPO（on-policy）と SAC/TD3（off-policy）両方で、manip_w を “各遷移” と完全同期してミニバッチに渡す仕組みが必要
+・SB3 の標準 RolloutBuffer / ReplayBuffer は manip_w を持っていない
+・適当に infos から都度再計算・再取得すると、シャッフル後のサンプル順と manip_w がズレる恐れがある（＝学習が壊れる）
+・そこで、RolloutBufferWithManip / ReplayBufferWithManip を実装し、
+  ・形（(T, N_env, 4) や (buffer_size, N_env, 4)）を明示
+  ・SB3 2.6.0 の add() / sample() / get() のシグネチャ＆返り値に準拠
+  ・返り値の namedtuple（RolloutBufferSamplesWithManip, ReplayBufferSamplesWithManip）を作って 型も順序も SB3 準拠で安全に
+・これにより、アルゴリズム側（models.py）は batch.manip_w をそのまま受け取れば良い設計になり、責務分離＆安全性が担保されます。
+"""
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Generator
 from collections import namedtuple
 
 import numpy as np
@@ -18,10 +28,9 @@ from stable_baselines3.common.buffers import (
 )
 
 # ---------- Off-policy 用（SAC/TD3） ----------
-# ReplayBufferSamples を拡張した namedtuple を用意
 ReplayBufferSamplesWithManip = namedtuple(
     "ReplayBufferSamplesWithManip",
-    ReplayBufferSamples._fields + ("manip_w",)
+    ReplayBufferSamples._fields + ("manip_w",),
 )
 
 
@@ -29,6 +38,7 @@ class ReplayBufferWithManip(ReplayBuffer):
     """
     SAC/TD3 用。各遷移に 4 脚分の可操作度ベクトル (manip_w) を保存して、
     sample() 時に ReplayBufferSamplesWithManip で返す。
+    ※ optimize_memory_usage=True には未対応
     """
 
     def __init__(
@@ -82,11 +92,11 @@ class ReplayBufferWithManip(ReplayBuffer):
     def sample(
         self, batch_size: int, env: Optional[th.Tensor] = None
     ) -> ReplayBufferSamplesWithManip:
+        batch_indices = np.random.randint(0, self.size(), size=batch_size)
         if env is None:
             env_indices = np.random.randint(0, self.n_envs, size=batch_size)
         else:
             env_indices = env.cpu().numpy()
-        batch_indices = np.random.randint(0, self.size(), size=batch_size)
 
         obs = th.as_tensor(
             self.observations[batch_indices, env_indices, :], device=self.device
@@ -97,16 +107,12 @@ class ReplayBufferWithManip(ReplayBuffer):
         actions = th.as_tensor(
             self.actions[batch_indices, env_indices, :], device=self.device
         )
-        rewards = (
-            th.as_tensor(self.rewards[batch_indices, env_indices], device=self.device)
-            .unsqueeze(1)
-            .clone()
-        )
-        dones = (
-            th.as_tensor(self.dones[batch_indices, env_indices], device=self.device)
-            .unsqueeze(1)
-            .clone()
-        )
+        rewards = th.as_tensor(
+            self.rewards[batch_indices, env_indices], device=self.device
+        ).unsqueeze(1)
+        dones = th.as_tensor(
+            self.dones[batch_indices, env_indices], device=self.device
+        ).unsqueeze(1)
         manip_w = self.manip_w[batch_indices, env_indices, :]
 
         samples = ReplayBufferSamplesWithManip(
@@ -131,6 +137,8 @@ class RolloutBufferWithManip(RolloutBuffer):
     """
     PPO 用。各ステップで 4 脚分の可操作度ベクトル (manip_w) を保存し、
     get() でミニバッチに同期した形で返す。
+
+    collect_rollouts 側で buffer.add(..., infos=infos) と渡す設計。
     """
 
     def __init__(self, *args, n_legs: int = 4, **kwargs):
@@ -138,7 +146,8 @@ class RolloutBufferWithManip(RolloutBuffer):
         super().__init__(*args, **kwargs)
         self.manip_w = th.zeros(
             (self.buffer_size, self.n_envs, self.n_legs),
-            dtype=th.float32, device=self.device
+            dtype=th.float32,
+            device=self.device,
         )
 
     def reset(self) -> None:
@@ -154,9 +163,12 @@ class RolloutBufferWithManip(RolloutBuffer):
         episode_start: np.ndarray,
         value: th.Tensor,
         log_prob: th.Tensor,
-        infos: Tuple[Dict[str, Any], ...],
+        *_,
+        infos: Optional[Tuple[Dict[str, Any], ...]] = None,
     ) -> None:
         super().add(obs, action, reward, episode_start, value, log_prob)
+        if infos is None:
+            return
         pos = (self.pos - 1) % self.buffer_size
         for env_idx, info in enumerate(infos):
             mw = info.get("manip_w", None)
@@ -165,13 +177,14 @@ class RolloutBufferWithManip(RolloutBuffer):
                     mw, dtype=th.float32, device=self.device
                 )
 
-    def get(self, batch_size: Optional[int] = None):
+    def get(
+        self, batch_size: Optional[int] = None
+    ) -> Generator[RolloutBufferSamplesWithManip, None, None]:
         assert self.full, "Rollout buffer must be full before sampling."
         if batch_size is None:
             batch_size = self.buffer_size * self.n_envs
 
-        indices = np.random.permutation(self.buffer_size * self.n_envs)
-
+        n_steps, n_envs = self.buffer_size, self.n_envs
         obs = self.observations.reshape(-1, *self.observations.shape[2:])
         actions = self.actions.reshape(-1, self.actions.shape[-1])
         values = self.values.reshape(-1)
@@ -180,18 +193,21 @@ class RolloutBufferWithManip(RolloutBuffer):
         returns = self.returns.reshape(-1)
         manip_w_flat = self.manip_w.reshape(-1, self.n_legs)
 
+        indices = np.random.permutation(n_steps * n_envs)
+
         start_idx = 0
         while start_idx < len(indices):
             end_idx = start_idx + batch_size
             batch_inds = indices[start_idx:end_idx]
+
             data = RolloutBufferSamplesWithManip(
-                observations=th.as_tensor(obs[batch_inds]).to(self.device),
-                actions=th.as_tensor(actions[batch_inds]).to(self.device),
-                old_values=th.as_tensor(values[batch_inds]).to(self.device),
-                old_log_prob=th.as_tensor(log_probs[batch_inds]).to(self.device),
-                advantages=th.as_tensor(advantages[batch_inds]).to(self.device),
-                returns=th.as_tensor(returns[batch_inds]).to(self.device),
-                manip_w=th.as_tensor(manip_w_flat[batch_inds]).to(self.device),
+                observations=th.as_tensor(obs[batch_inds], device=self.device),
+                actions=th.as_tensor(actions[batch_inds], device=self.device),
+                old_values=th.as_tensor(values[batch_inds], device=self.device),
+                old_log_prob=th.as_tensor(log_probs[batch_inds], device=self.device),
+                advantages=th.as_tensor(advantages[batch_inds], device=self.device),
+                returns=th.as_tensor(returns[batch_inds], device=self.device),
+                manip_w=th.as_tensor(manip_w_flat[batch_inds], device=self.device),
             )
             yield data
             start_idx = end_idx
