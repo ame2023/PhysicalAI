@@ -53,7 +53,7 @@ torque_scale_Nm: 30.0        # [Nm] torque 時のスケール（クリップ上�
 reward_mode: "Progress"      # {"Progress","EnergeticProgress"}
 norm_reward: False           # PPOのみ True で学習安定化するケースあり（基本 False）
 # 環境並列化
-multi_env: False
+multi_env: True
 num_envs: 8
 
 # =========================

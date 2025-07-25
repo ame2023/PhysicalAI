@@ -152,8 +152,8 @@ class PPOWithManip(ManipulabilityLossMixin, PPO):
             if not callback.on_step():
                 return False
 
-            rewards = rewards.reshape(-1, 1)
-            dones = dones.reshape(-1, 1)
+            rewards = rewards.reshape(-1)
+            dones = dones.reshape(-1)
 
             # 2) ★ ここで obs/episode_starts を用いて、infos を渡して add
             rollout_buffer.add(obs, actions, rewards, episode_starts, values, log_probs, infos)
