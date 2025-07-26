@@ -26,7 +26,7 @@ n_steps: 2048                # 1回の rollouts 長 (PPO/A2C系)
 # =========================
 # 可操作度（Manipulability）関連
 # =========================
-calculate_manip: True       # True にすると use_manip_loss=False でも可操作度を計算して info/obs に入れる
+calculate_manip: False       # True にすると use_manip_loss=False でも可操作度を計算して info/obs に入れる
 use_manip_loss: False        # True なら学習ロスに可操作度を加える（False でもログは可能）
 manip_coef: 0.01             # ロスへ入れる係数 W
 # 
@@ -50,10 +50,10 @@ obs_mode: "nonManip"         # {"joint","joint+base","nonManip","full"}
 control_mode: "PDcontrol"    # {"PDcontrol","torque"}
 action_scale_deg: 180        # [deg] PDcontrol 時の ±スケール
 torque_scale_Nm: 30.0        # [Nm] torque 時のスケール（クリップ上限）
-reward_mode: "Progress"      # {"Progress","EnergeticProgress"}
+reward_mode: "EnergeticProgress"      # {"Progress","EnergeticProgress"}
 norm_reward: False           # PPOのみ True で学習安定化するケースあり（基本 False）
 # 環境並列化
-multi_env: True
+multi_env: False
 num_envs: 8
 
 # =========================

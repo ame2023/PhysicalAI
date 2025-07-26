@@ -20,7 +20,7 @@ from stable_baselines3.common.vec_env import VecMonitor, VecNormalize
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import EvalCallback,  BaseCallback
 
-from unitree_pybullet.unitree_pybullet import QuadEnv
+from unitree_pybullet.unitree_pybullet.QuadGymEnv import QuadEnv
 
 from src.models import ExtendModel
 from src.SkipFrame import SkipFrame
