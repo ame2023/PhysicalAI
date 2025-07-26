@@ -5,7 +5,7 @@ import time
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
-from unitree_pybullet.unitree_pybullet import QuadEnv
+from unitree_pybullet.unitree_pybullet.QuadGymEnv import QuadEnv
 from omegaconf import OmegaConf
 from stable_baselines3.common.vec_env import VecMonitor, VecNormalize, DummyVecEnv
 
