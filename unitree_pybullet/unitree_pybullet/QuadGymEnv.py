@@ -418,17 +418,25 @@ class QuadEnv(gym.Env):
             sigma_v = 0.25
             v_err_sq = (vx - target_vx) ** 2 + (vy - target_vy) ** 2
             R_v = np.exp(-v_err_sq / sigma_v)
+            # yaw方向の回転を抑制
+            omega_yaw = obs[36]
+            sigma_yaw = 0.25
+            R_ang = np.exp(-omega_yaw**2/ sigma_yaw)
+
             # 消費エネルギー項
             torque = np.abs(self._prev_action)   # 1 ステップ前に実際に発生したトルク [Nm]
             qdot   = np.abs(obs[12:24])          # 各関節角速度 [rad/s]
             power  = np.dot(torque, qdot)        # ∑ |τ|·|ω| = 機械的仕事率
             sigma_en_x = 1000
             sigma_en_z = 500
-            omega_yaw = obs[36]
             eps=1e-8
             R_en = np.exp(- power/(sigma_en_x* abs(vx) + sigma_en_z * abs(omega_yaw) + eps))
             alpha_en =1.0
-            return float(R_v + alpha_en*R_en)
+            R_en *= alpha_en
+            # 報酬関数 R = (R_motion + R_en)*exp(R_aux) ※ここではexp(R_aux)=1としている
+            alpha_ang = 0.5
+            R_motion = R_v + alpha_ang*R_ang
+            return float(R_motion +R_en)
 
         # fallback: joint-angle penalty
         q = obs[:12]
