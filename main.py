@@ -25,7 +25,8 @@ from unitree_pybullet.unitree_pybullet.QuadGymEnv import QuadEnv
 from src.models import ExtendModel
 from src.SkipFrame import SkipFrame
 from src.make_figure import save_reward_and_loss_plots
-from src.callbacks import ManipLoggerCallback, LossLoggerCallback
+from src.callbacks import ManipLoggerCallback, LossLoggerCallback, TrainEpisodeStatsCallback
+from src.make_video import VideoRecorder, run_best_model_test  
 
 
 @hydra.main(version_base = None, 
@@ -166,10 +167,12 @@ def main(cfg:DictConfig):
     loss_logger = LossLoggerCallback(logdir)
     # 可操作度は４脚の平均値をステップ単位で記録（）
     manip_logger = ManipLoggerCallback(logdir, use_wandb=cfg.use_wandb)
+    train_epstats = TrainEpisodeStatsCallback(log_interval_steps=cfg.get("log_interval_steps", 0))
+
 
     agent.learn(total_timesteps = cfg.total_steps,
                  reset_num_timesteps=False,
-                 callback = [eval_callback, loss_logger, manip_logger],
+                 callback = [eval_callback, loss_logger, manip_logger, train_epstats],
                  progress_bar = True,
                  )
 
@@ -190,6 +193,13 @@ def main(cfg:DictConfig):
     agent.save(os.path.join(logdir, f"{cfg.algo.lower()}_{cfg.unitree_model}.zip"))
     # 統計情報の保存（正規化用） #
     env.save(os.path.join(logdir, "vecnormalize.pkl"))
+
+    # ---- best_modelで動画作成 ----------------------------------------
+    if cfg.make_video:
+        run_best_model_test(logdir=logdir, cfg=cfg)
+
+
+
 
 
     if cfg.use_wandb:

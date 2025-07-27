@@ -68,23 +68,15 @@ def _plot_manip(manip_df: pd.DataFrame, logdir: str, agg: str = "mean"):
     df["seq"] = np.arange(len(df), dtype=np.int64)
 
     # 1) 各脚をそのまま seq 軸で描画
-    df_legs = df.melt(
-        id_vars=["seq", "step", "env", "episode_id", "t_in_episode"],
-        value_vars=leg_cols,
-        var_name="leg",
-        value_name="manip",
-    ).sort_values("seq")
-
-    plt.figure(figsize=(7, 4))
-    for leg, sub in df_legs.groupby("leg"):
-        plt.plot(sub["seq"], sub["manip"], label=leg, linewidth=0.8)
-    plt.xlabel("Logged Step (seq)")
-    plt.ylabel("Manipulability")
-    plt.title("Manipulability per leg (no env averaging)")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(os.path.join(logdir, "manip_curve_legs_seq.png"))
-    plt.close()
+    for leg_col in leg_cols:  # 例: leg_0, leg_1, leg_2, leg_3
+        plt.figure(figsize=(6, 4))
+        plt.plot(df["seq"], df[leg_col], linewidth=1.0)
+        plt.xlabel("Logged Step (seq)")
+        plt.ylabel("Manipulability")
+        plt.title(f"Manipulability ({leg_col})")
+        plt.tight_layout()
+        plt.savefig(os.path.join(logdir, f"manip_curve_{leg_col}_seq.png"))
+        plt.close()
 
     # 2) 4脚を 'agg' で1行ずつ集約
     if agg not in {"mean", "min", "max", "sum"}:

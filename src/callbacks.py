@@ -2,6 +2,8 @@
 import os
 import numpy as np
 import pandas as pd
+from collections import deque
+from typing import Deque, Tuple, Optional, Any
 from stable_baselines3.common.callbacks import BaseCallback
 
 
@@ -15,36 +17,41 @@ class LossLoggerCallback(BaseCallback):
         self.records = []
 
     def _on_step(self) -> bool:
-        kv = self.model.logger.name_to_value
-        if any(k.startswith("train/") for k in kv):
-            self.records.append({k: kv[k] for k in kv if k.startswith("train/")})
+        try:
+            kv = self.logger.get_log_dict()
+        except Exception:
+            return True
+        row = {k: v for k, v in kv.items() if isinstance(k, str) and k.startswith("train/")}
+        if row:
+            self.records.append(row)
         return True
 
     def _on_training_end(self) -> None:
         if not self.records:
             return
+        df = pd.DataFrame(self.records)
         out = os.path.join(self.logdir, "loss_history.csv")
-        pd.DataFrame(self.records).to_csv(out, index=False)
+        df.to_csv(out, index=False)
         if self.verbose > 0:
             print(f"[LossLoggerCallback] wrote {out}")
 
 
 class ManipLoggerCallback(BaseCallback):
     """
-    環境×脚の可操作度をそのまま 1 step ごとに CSV に保存する
-    step, env, episode_id, t_in_episode, leg_0..3, mean, min, max
+    各 step の info["manip_w"]（4脚の可操作度）をCSVに保存。
+    VecEnv を想定。env_id/episode_id/seq なども付与。
     """
     def __init__(self, logdir: str, use_wandb: bool = False, verbose: int = 0):
         super().__init__(verbose=verbose)
         self.logdir = logdir
         self.use_wandb = use_wandb
         self.rows = []
-        self.episode_ids = None
+        self.episode_id = None
         self.t_in_episode = None
 
     def _on_training_start(self) -> None:
         n_envs = self.training_env.num_envs
-        self.episode_ids = np.zeros(n_envs, dtype=np.int64)
+        self.episode_id = np.zeros(n_envs, dtype=np.int64)
         self.t_in_episode = np.zeros(n_envs, dtype=np.int64)
 
     def _on_step(self) -> bool:
@@ -61,21 +68,19 @@ class ManipLoggerCallback(BaseCallback):
             row = {
                 "step": step,
                 "env": env_id,
-                "episode_id": int(self.episode_ids[env_id]),
+                "episode_id": int(self.episode_id[env_id]),
                 "t_in_episode": int(self.t_in_episode[env_id]),
-                "mean": float(w.mean()),
-                "min": float(w.min()),
-                "max": float(w.max()),
+                "leg_0": float(w[0]) if w.size > 0 else np.nan,
+                "leg_1": float(w[1]) if w.size > 1 else np.nan,
+                "leg_2": float(w[2]) if w.size > 2 else np.nan,
+                "leg_3": float(w[3]) if w.size > 3 else np.nan,
             }
-            for i, v in enumerate(w):
-                row[f"leg_{i}"] = float(v)
             self.rows.append(row)
 
-        # episode境界の更新
         if dones is not None:
             for env_id, d in enumerate(dones):
-                if d:
-                    self.episode_ids[env_id] += 1
+                if bool(d):
+                    self.episode_id[env_id] += 1
                     self.t_in_episode[env_id] = 0
                 else:
                     self.t_in_episode[env_id] += 1
@@ -90,3 +95,51 @@ class ManipLoggerCallback(BaseCallback):
         df.to_csv(out, index=False)
         if self.verbose > 0:
             print(f"[ManipLoggerCallback] wrote {out}")
+
+
+class TrainEpisodeStatsCallback(BaseCallback):
+    """
+    学習中のエピソード統計（平均報酬・平均長）を logger に記録。
+    → SB3 本体の dump タイミングの表に一緒に出すため、ここでは dump しない。
+    Gym/Gymnasium 両対応：info["episode"] または info["final_info"]["episode"] を拾う。
+    """
+    def __init__(self, window_size: int = 100, log_interval_steps: int = 0, verbose: int = 0):
+        super().__init__(verbose=verbose)
+        self.window_size = window_size
+        self.log_interval_steps = int(log_interval_steps)
+        self.rew_buf: Deque[float] = deque(maxlen=window_size)
+        self.len_buf: Deque[int] = deque(maxlen=window_size)
+
+    def _extract_episode(self, info: Any) -> Optional[Tuple[float, int]]:
+        if not info:
+            return None
+        if "episode" in info and isinstance(info["episode"], dict):
+            ep = info["episode"]
+            if "r" in ep and "l" in ep:
+                return float(ep["r"]), int(ep["l"])
+        fi = info.get("final_info", None)
+        if isinstance(fi, dict) and "episode" in fi:
+            ep = fi["episode"]
+            if "r" in ep and "l" in ep:
+                return float(ep["r"]), int(ep["l"])
+        return None
+
+    def _on_step(self) -> bool:
+        infos = self.locals.get("infos", None)
+        if infos is None:
+            return True
+        for inf in infos:
+            ep = self._extract_episode(inf)
+            if ep is None:
+                continue
+            r, l = ep
+            self.rew_buf.append(r)
+            self.len_buf.append(l)
+        return True
+
+    def _on_rollout_end(self) -> None:
+        if len(self.rew_buf) == 0:
+            return
+        self.logger.record("rollout/ep_rew_mean", np.mean(self.rew_buf))
+        self.logger.record("rollout/ep_len_mean", np.mean(self.len_buf))
+        # dump は SB3 本体が直後に行う（表に一緒に出る）

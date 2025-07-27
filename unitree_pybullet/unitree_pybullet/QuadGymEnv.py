@@ -123,7 +123,7 @@ class QuadEnv(gym.Env):
         self.Kd = 1
 
         
-        self.fall_penalty = 100 # 転倒時のペナルティ
+        self.fall_penalty = 0 # 転倒時のペナルティ
 
         # 初期姿勢（ホームポジション）
         self.initial_joint = [0.0, 0.8, -1.5] #[hip, thigh, calf] の順に角度(rad)設定

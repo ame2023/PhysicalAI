@@ -14,3 +14,8 @@ rich
 torch==2.7.1+cu128
 torchvision==0.22.1+cu128
 torchaudio==2.7.1+cu128
+
+
+
+imageio>=2.30
+imageio-ffmpeg>=0.4.9

@@ -54,9 +54,24 @@ reward_mode: "EnergeticProgress"      # {"Progress","EnergeticProgress"}
 norm_reward: False           # PPOのみ True で学習安定化するケースあり（基本 False）
 # 環境並列化
 multi_env: True
-num_envs: 8
+num_envs: 5
 
 # =========================
 # 評価
 # =========================
 num_eval_envs: 5
+
+# =========================
+# カメラ設定
+# =========================
+make_video: True # 学習後に動画を出力する
+video_record_mode: software   # auto|pybullet|software
+video_renderer: auto          # auto|opengl|tiny  ← software時のレンダラ選択
+video_fps: 60
+video_realtime: true
+video_size: [1280, 720]
+video_camera:                 # 省略可（未指定はPyBulletの現状値）
+  distance: 1.8
+  yaw: 30.0
+  pitch: -20.0
+  target: [0.0, 0.0, 0.25]
