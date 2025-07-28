@@ -431,7 +431,7 @@ class QuadEnv(gym.Env):
             sigma_en_z = 500
             eps=1e-8
             R_en = np.exp(- power/(sigma_en_x* abs(vx) + sigma_en_z * abs(omega_yaw) + eps))
-            alpha_en =1.0
+            alpha_en =0.25
             R_en *= alpha_en
             # 報酬関数 R = (R_motion + R_en)*exp(R_aux) ※ここではexp(R_aux)=1としている
             alpha_ang = 0.5

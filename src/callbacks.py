@@ -166,6 +166,19 @@ class EvalCallbackWithVec(BaseCallback):
     def _on_step(self) -> bool:
         if self.eval_freq <= 0 or (self.num_timesteps % self.eval_freq) != 0:
             return True
+
+        # 学習側VecNormalizeの統計を評価側に同期
+        try:
+            self.eval_env.obs_rms = self.train_vecnorm.obs_rms
+            self.eval_env.ret_rms = self.train_vecnorm.ret_rms
+            self.eval_env.clip_obs = self.train_vecnorm.clip_obs
+            self.eval_env.clip_reward = getattr(self.train_vecnorm, "clip_reward", np.inf)
+            self.eval_env.norm_obs = self.train_vecnorm.norm_obs
+            self.eval_env.norm_reward = self.train_vecnorm.norm_reward
+        except Exception as e:
+            if self.verbose:
+                print(f"[WARN] failed to sync VecNormalize: {e}")
+
         # 評価
         from stable_baselines3.common.evaluation import evaluate_policy
         mean_r, std_r = evaluate_policy(self.model, self.eval_env,
@@ -176,14 +189,14 @@ class EvalCallbackWithVec(BaseCallback):
         self.logger.record("time/total_timesteps", self.num_timesteps)
         self.logger.dump(self.num_timesteps)
 
-        # ベスト更新なら model と VecNormalize を保存
+        # ベスト更新なら保存（既存の通り）
         if mean_r > self.best_mean:
             self.best_mean = mean_r
             self.model.save(os.path.join(self.save_path, "best_model.zip"))
-            # 学習側 VecNormalize のスナップショットを保存
             try:
                 self.train_vecnorm.save(os.path.join(self.save_path, "vecnormalize_best.pkl"))
             except Exception as e:
                 if self.verbose:
                     print(f"[WARN] failed to save vecnormalize_best: {e}")
         return True
+
