@@ -134,6 +134,20 @@ def main(cfg:DictConfig):
     #            batch_size = cfg.minibatch_size,
     #            policy_kwargs = policy_kwargs
     #             )
+    algo_kwargs = {}
+
+    # --- PPO専用キーはPPOのときだけ詰める ---
+    if cfg.algo.upper() == "PPO":
+        for key in ["n_epochs", "target_kl"]:
+            val = getattr(cfg, key, None)
+            if val is not None:
+                algo_kwargs[key] = val
+
+    # 念のための保険（上で分岐していれば不要だが二重防御）
+    if cfg.algo.upper() != "PPO":
+        for k in ["n_epochs", "target_kl"]:
+            algo_kwargs.pop(k, None)
+
     agent = ExtendModel.create(
         model_name=cfg.algo,          # 'PPO' / 'SAC' / 'TD3'
         policy = cfg.policy,
@@ -146,6 +160,7 @@ def main(cfg:DictConfig):
         device=cfg.device,
         batch_size=cfg.minibatch_size,
         policy_kwargs=policy_kwargs,
+        **algo_kwargs,   
         )
 
     # --- 評価環境とコールバックの設定 --------------------------------
@@ -181,7 +196,7 @@ def main(cfg:DictConfig):
 
     agent.learn(total_timesteps = cfg.total_steps,
                  reset_num_timesteps=False,
-                 callback = [eval_callback, loss_logger, manip_logger, train_epstats],
+                 callback = [train_epstats, loss_logger, eval_callback, manip_logger],
                  progress_bar = True,
                  )
 

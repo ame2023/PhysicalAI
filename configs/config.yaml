@@ -19,9 +19,11 @@ minibatch_size: 128          # PPOならミニバッチ、SAC/TD3なら replay �
 
 # --- PPO で主に使う ---
 n_steps: 2048                # 1回の rollouts 長 (PPO/A2C系)
-# n_epochs: 10               # （必要なら追加）
+n_epochs: 7                  # デフォルト値：10
+target_kl: 0.015             # [0.01, 0.02]の範囲で指定（デフォルトはNone）(更新前後の分布のずれを抑制)
 # gamma: 0.99                # （必要なら追加）
 # gae_lambda: 0.95           # （必要なら追加）
+
 
 # =========================
 # 可操作度（Manipulability）関連

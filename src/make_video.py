@@ -330,7 +330,7 @@ def run_best_model_test(logdir: str, cfg, video_enable: bool | None = None) -> N
     test_env = VecMonitor(test_env, filename=os.path.join(test_dir, "monitor.csv"))
 
     # ------------- 推論設定 -------------
-    test_deterministic = bool(getattr(cfg, "test_deterministic", False))
+    test_deterministic = bool(getattr(cfg, "test_deterministic", True))
 
     # ------------- モデル読込 & 初期化 -------------
     model_best = ExtendModel.load(best_model_path, env=test_env, device=cfg.device, model_name=cfg.algo)
