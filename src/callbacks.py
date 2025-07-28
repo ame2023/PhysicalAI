@@ -143,3 +143,47 @@ class TrainEpisodeStatsCallback(BaseCallback):
         self.logger.record("rollout/ep_rew_mean", np.mean(self.rew_buf))
         self.logger.record("rollout/ep_len_mean", np.mean(self.len_buf))
         # dump は SB3 本体が直後に行う（表に一緒に出る）
+
+class EvalCallbackWithVec(BaseCallback):
+    """
+    EvalCallback 相当の機能に加えて、ベスト更新時に VecNormalize を保存する軽量版。
+    """
+    def __init__(self, eval_env, save_path: str, train_vecnorm, eval_freq: int = 10000,
+                 n_eval_episodes: int = 5, deterministic: bool = False, verbose: int = 0):
+        super().__init__(verbose)
+        self.eval_env = eval_env
+        self.save_path = save_path
+        self.train_vecnorm = train_vecnorm
+        self.eval_freq = int(eval_freq)
+        self.n_eval_episodes = int(n_eval_episodes)
+        self.deterministic = bool(deterministic)
+        self.best_mean = -np.inf
+        os.makedirs(save_path, exist_ok=True)
+
+    def _init_callback(self) -> None:
+        pass
+
+    def _on_step(self) -> bool:
+        if self.eval_freq <= 0 or (self.num_timesteps % self.eval_freq) != 0:
+            return True
+        # 評価
+        from stable_baselines3.common.evaluation import evaluate_policy
+        mean_r, std_r = evaluate_policy(self.model, self.eval_env,
+                                        n_eval_episodes=self.n_eval_episodes,
+                                        deterministic=self.deterministic, render=False)
+        self.logger.record("eval/mean_reward", mean_r)
+        self.logger.record("eval/mean_reward_std", std_r)
+        self.logger.record("time/total_timesteps", self.num_timesteps)
+        self.logger.dump(self.num_timesteps)
+
+        # ベスト更新なら model と VecNormalize を保存
+        if mean_r > self.best_mean:
+            self.best_mean = mean_r
+            self.model.save(os.path.join(self.save_path, "best_model.zip"))
+            # 学習側 VecNormalize のスナップショットを保存
+            try:
+                self.train_vecnorm.save(os.path.join(self.save_path, "vecnormalize_best.pkl"))
+            except Exception as e:
+                if self.verbose:
+                    print(f"[WARN] failed to save vecnormalize_best: {e}")
+        return True

@@ -14,7 +14,7 @@ unitree_model: 'a1'          # {"a1", "aliengo", ##laikago##}
 algo: 'PPO'                  # {"PPO", "SAC", "TD3"}
 policy: 'MlpPolicy'
 device: "cpu"                # {"cpu", "cuda", "auto"}
-total_steps: 20480           # 参考2048*500 = 1,024,000 # n_step*num_update
+total_steps: 61440           # 参考2048*500 = 1,024,000 # n_step*num_update
 minibatch_size: 128          # PPOならミニバッチ、SAC/TD3なら replay の batch_size と揃えるなど
 
 # --- PPO で主に使う ---
@@ -46,7 +46,7 @@ max_steps_per_episode: 4000  # max_steps_per_episode = 4000かつ 1step =1/400�
 # skip_freq: 1 # 4 エージェントはskip_frewq回同じ行動を連続してとる(現在は無効にしている。制御周期のずれの調整が困難なため)
 fall_height_th: 0.20         # [m] 胴体の高さが 0.20m 以下で転倒判定
 fall_angle_th: 1.0           # [rad] |roll| or |pitch| > 1.0rad (~60deg) で転倒判定
-obs_mode: "nonManip"         # {"joint","joint+base","nonManip","full"}
+obs_mode: "joint+base"         # {"joint","joint+base","nonManip","full"}
 control_mode: "PDcontrol"    # {"PDcontrol","torque"}
 action_scale_deg: 180        # [deg] PDcontrol 時の ±スケール
 torque_scale_Nm: 30.0        # [Nm] torque 時のスケール（クリップ上限）
@@ -68,7 +68,7 @@ make_video: True # 学習後に動画を出力する
 video_record_mode: software   # auto|pybullet|software
 video_renderer: auto          # auto|opengl|tiny  ← software時のレンダラ選択
 video_fps: 60
-video_realtime: true
+video_realtime: True
 video_size: [1280, 720]
 video_camera:                 # 省略可（未指定はPyBulletの現状値）
   distance: 1.8

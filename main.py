@@ -25,7 +25,7 @@ from unitree_pybullet.unitree_pybullet.QuadGymEnv import QuadEnv
 from src.models import ExtendModel
 from src.SkipFrame import SkipFrame
 from src.make_figure import save_reward_and_loss_plots
-from src.callbacks import ManipLoggerCallback, LossLoggerCallback, TrainEpisodeStatsCallback
+from src.callbacks import ManipLoggerCallback, LossLoggerCallback, TrainEpisodeStatsCallback, EvalCallbackWithVec
 from src.make_video import VideoRecorder, run_best_model_test  
 
 
@@ -153,15 +153,24 @@ def main(cfg:DictConfig):
     eval_env = VecNormalize(eval_env, training = False, norm_obs=True, norm_reward=cfg.norm_reward, clip_obs=10.)
     eval_env = VecMonitor(eval_env, filename=os.path.join(logdir, "eval_monitor.csv"))
     eval_env.reset()
-    eval_callback = EvalCallback(
-        eval_env,
-        best_model_save_path=logdir,
-        log_path=logdir,
-        eval_freq=2048*5,        # 2048*5ステップごとに評価（エージェントの更新が2048stepに1回のため）
-        n_eval_episodes=10,     # 10エピソードで平均をとる
-        deterministic=False,
-        render=False,
-        )
+    # eval_callback = EvalCallback(
+    #     eval_env,
+    #     best_model_save_path=logdir,
+    #     log_path=logdir,
+    #     eval_freq=2048*5,        # 2048*5ステップごとに評価（エージェントの更新が2048stepに1回のため）
+    #     n_eval_episodes=10,     # 10エピソードで平均をとる
+    #     deterministic=False,
+    #     render=False,
+    # )
+    eval_callback = EvalCallbackWithVec(
+        eval_env=eval_env,
+        save_path=logdir,
+        train_vecnorm=env,              # ← 学習側 VecNormalize を渡す
+        eval_freq=2048*5,
+        n_eval_episodes=10,
+        deterministic=False,            # 学習時評価と合わせる
+        verbose=1,
+    )
 
     # --- 学習 ------------------------------------------------------
     loss_logger = LossLoggerCallback(logdir)
