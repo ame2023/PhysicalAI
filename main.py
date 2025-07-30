@@ -182,7 +182,7 @@ def main(cfg:DictConfig):
         save_path=logdir,
         train_vecnorm=env,              # ← 学習側 VecNormalize を渡す
         eval_freq=2048*5,
-        n_eval_episodes=10,
+        n_eval_episodes=50,
         deterministic=False,            # 学習時評価と合わせる
         verbose=1,
     )

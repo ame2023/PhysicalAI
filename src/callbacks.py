@@ -192,6 +192,7 @@ class EvalCallbackWithVec(BaseCallback):
         # ベスト更新なら保存（既存の通り）
         if mean_r > self.best_mean:
             self.best_mean = mean_r
+            print(f"update best_mean_reward:{self.best_mean}, save best_model")
             self.model.save(os.path.join(self.save_path, "best_model.zip"))
             try:
                 self.train_vecnorm.save(os.path.join(self.save_path, "vecnormalize_best.pkl"))

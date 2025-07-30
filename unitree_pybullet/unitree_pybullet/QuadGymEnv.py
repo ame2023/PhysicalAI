@@ -120,7 +120,7 @@ class QuadEnv(gym.Env):
         self._prev_action = np.zeros(self.num_joint, dtype=np.float32)
         # PDゲイン
         self.Kp = 40.0
-        self.Kd = 1
+        self.Kd = 3
 
         
         self.fall_penalty = 0 # 転倒時のペナルティ
