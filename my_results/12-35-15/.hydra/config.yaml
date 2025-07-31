@@ -1,0 +1,45 @@
+seed: 1234
+unitree_model: a1
+algo: PPO
+policy: MlpPolicy
+device: cpu
+total_steps: 4096000
+minibatch_size: 8192
+n_steps: 2048
+n_epochs: 7
+target_kl: 0.015
+calculate_manip: false
+use_manip_loss: false
+manip_coef: 0.01
+manip_agg: mean
+custom_agg_py: null
+use_wandb: false
+render: true
+max_steps_per_episode: 4000
+fall_height_th: 0.2
+fall_angle_th: 1.0
+obs_mode: joint+base
+control_mode: PDcontrol
+action_scale_deg: 90
+torque_scale_Nm: 40.0
+reward_mode: EnergeticProgress
+norm_reward: false
+multi_env: true
+num_envs: 16
+num_eval_envs: 5
+make_video: true
+video_record_mode: software
+video_renderer: auto
+video_fps: 60
+video_realtime: true
+video_size:
+- 1280
+- 720
+video_camera:
+  distance: 4
+  yaw: 30.0
+  pitch: -20.0
+  target:
+  - 8.0
+  - 0.0
+  - 0.25
