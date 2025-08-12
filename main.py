@@ -217,6 +217,7 @@ def main(cfg:DictConfig):
     agent.save(os.path.join(logdir, f"{cfg.algo.lower()}_{cfg.unitree_model}.zip"))
     # 統計情報の保存（正規化用） #
     env.save(os.path.join(logdir, "vecnormalize.pkl"))
+    env.close()
 
     # ---- best_modelで動画作成 ----------------------------------------
     if cfg.make_video:
@@ -239,7 +240,6 @@ def main(cfg:DictConfig):
 
     if run is not None: 
         run.finish()
-    env.close()
     eval_env.close()
 
     

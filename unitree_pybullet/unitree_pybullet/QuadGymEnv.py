@@ -13,6 +13,7 @@ import pybullet as p
 from importlib.resources import files
 from . import manip_utils as mu
 
+
 ###########################################################################
 # QuadEnv: Gym/Gymnasium‑compatible PyBullet environment                   #
 # ----------------------------------------------------------------------- #
@@ -137,9 +138,6 @@ class QuadEnv(gym.Env):
 
 
 
-
-
-
     # ------------------------------------------------------------------
     # Gym API
     # ------------------------------------------------------------------
@@ -224,7 +222,13 @@ class QuadEnv(gym.Env):
         ########################################################################
         
         self.leg_joints, self.leg_ee_link = mu.build_leg_maps(self._robot, self._cid) # 脚の関節とリンクのindexを取得
-        self.actuated = (self.leg_joints["FR"] + self.leg_joints["FL"] + self.leg_joints["RR"] + self.leg_joints["RL"])
+        #import inspect as _inspect
+        #import unitree_pybullet.unitree_pybullet.manip_utils as _mu
+        #print("[DEBUG] manip_utils file =", _mu.__file__)
+        #print("[DEBUG] has toe_offset  ?",
+        #    "toe_offset" in _inspect.getsource(_mu.compute_leg_manipulability))
+
+        self.actuated = (self.leg_joints["FL"] + self.leg_joints["FR"] + self.leg_joints["RL"] + self.leg_joints["RR"])
         self.num_joint = len(self.actuated) # = 12
         # 初期姿勢の設定
         self._set_initial_pose()
@@ -242,6 +246,14 @@ class QuadEnv(gym.Env):
 
         self._prev_action.fill(0.0)   # ← 直前トルクの初期化
         self._ep_step = 0          # ← エピソードステップをリセット
+        #############################################################################
+        #def _jname(j):
+        #    return p.getJointInfo(self._robot, j, physicsClientId=self._cid)[1].decode()
+        #for leg, jids in self.leg_joints.items():
+        #    print(f"[MAP] {leg} joints:", [(j, _jname(j)) for j in jids])
+        #print("[MAP] leg_ee_link:", {leg: (idx, p.getJointInfo(self._robot, idx, physicsClientId=self._cid)[12].decode())
+        #                            for leg, idx in self.leg_ee_link.items()})
+        ##############################################################################
         return self._get_obs(), {}
 
     def step(self, action: np.ndarray):
@@ -328,6 +340,20 @@ class QuadEnv(gym.Env):
         info = {}
         if m4 is not None:
             info["manip_w"] = np.asarray(m4, dtype=np.float32)
+            ##############################################################
+            # ▼ デバッグ（必要なときだけ使ってください）
+            # m4_raw = mu.compute_leg_manipulability(self._robot, self.leg_joints, self.leg_ee_link, self._cid)
+            # m4_raw = np.asarray(m4_raw, dtype=np.float64)
+
+            # ★ 生値を必ずログ（多すぎるなら %50==0 とかで間引き）
+            # if (self._ep_step % 50) == 0:
+            #     print(f"[MANIP] step={self._ep_step:04d} raw={m4_raw}")
+
+            # ↓ 正規化を一旦OFFにして挙動を見る（まずはそのまま出す）
+            # m4 = m4_raw.copy()
+
+            # info["manip_w"] = m4.astype(np.float32)
+            #######################################################
 
         if gymnasium_available:
             return obs, reward, terminated, truncated, info
