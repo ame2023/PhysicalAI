@@ -112,6 +112,8 @@ class QuadEnv(gym.Env):
 
         self._cid: Optional[int] = None
         self._robot: Optional[int] = None
+        # 地面のボディID
+        self._plane: Optional[int] = None
 
         # 各脚ごとの関節とリンク情報
         self.leg_joints: Dict[str, list[int]] | None = None
@@ -120,8 +122,8 @@ class QuadEnv(gym.Env):
         self.dt = 1.0 / 400.0 # シミュレーションの1stepあたりの経過時間
         self._prev_action = np.zeros(self.num_joint, dtype=np.float32)
         # PDゲイン
-        self.Kp = 40.0
-        self.Kd = 3
+        self.Kp = 50.0
+        self.Kd = 1
 
         
         self.fall_penalty = 0 # 転倒時のペナルティ
@@ -179,8 +181,7 @@ class QuadEnv(gym.Env):
         p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)   # GUI無効なら無視される
         # ---------------------------------------------------------------
 
-
-        p.loadURDF(plane_path, physicsClientId=self._cid)
+        self._plane = p.loadURDF(plane_path, physicsClientId=self._cid)
         if self.model_name == "a1":
             self._robot = p.loadURDF(
                 robot_path,
@@ -335,6 +336,36 @@ class QuadEnv(gym.Env):
         if terminated or truncated:
             self._ep_step = 0
 
+        # ---- 足裏接地の判定（各脚の toe と地面の接触） -------------------------
+        contact_flags = None
+        support_names = None
+        try:
+            legs_order = ("FL", "FR", "RL", "RR")
+            contact_flags = []
+            support_names = []
+            for leg in legs_order:
+                link_idx = self.leg_ee_link[leg]
+                cps = p.getContactPoints(bodyA=self._robot, linkIndexA=link_idx,
+                                         bodyB=(self._plane if self._plane is not None else -1),
+                                         physicsClientId=self._cid)
+                # 正方向法線力 > 5N を接地判定の閾値とする（ノイズ回避）
+                fn_total = 0.0
+                press_threshold = 5.0 # 5.0(N)感圧の閾値
+                for cp in cps:
+                    try:
+                        fn_total += float(cp[9])  # cp[9] = normal force
+                    except Exception:
+                        pass           
+                contact = (fn_total > press_threshold) 
+                contact_flags.append(1 if contact else 0)
+                if contact:
+                    support_names.append(leg)
+            contact_flags = np.asarray(contact_flags, dtype=np.uint8)
+        except Exception:
+            contact_flags = None
+            support_names = None
+        # --------------------------------------------------------------------
+
         
 
         info = {}
@@ -354,6 +385,14 @@ class QuadEnv(gym.Env):
 
             # info["manip_w"] = m4.astype(np.float32)
             #######################################################
+
+        # 接地・支持脚の情報を info に格納  ← 追加
+        if contact_flags is not None:
+            info["foot_contact"] = contact_flags  # [FL, FR, RL, RR] (0/1)
+        if support_names is not None:
+            info["support_names"] = tuple(support_names)
+
+            
 
         if gymnasium_available:
             return obs, reward, terminated, truncated, info
@@ -440,7 +479,7 @@ class QuadEnv(gym.Env):
             """
             # 速度項
             vx, vy = obs[31], obs[32]
-            target_vx, target_vy = 0.8, 0.0 #[m/s]
+            target_vx, target_vy = 1.0, 0.0 #[m/s]
             sigma_v = 0.25
             v_err_sq = (vx - target_vx) ** 2 + (vy - target_vy) ** 2
             R_v = np.exp(-v_err_sq / sigma_v)
@@ -457,7 +496,7 @@ class QuadEnv(gym.Env):
             sigma_en_z = 500
             eps=1e-8
             R_en = np.exp(- power/(sigma_en_x* abs(vx) + sigma_en_z * abs(omega_yaw) + eps))
-            alpha_en =0.25
+            alpha_en =0.01
             R_en *= alpha_en
             # 報酬関数 R = (R_motion + R_en)*exp(R_aux) ※ここではexp(R_aux)=1としている
             alpha_ang = 0.5

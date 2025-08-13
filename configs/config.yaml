@@ -14,7 +14,7 @@ unitree_model: 'a1'          # {"a1", "aliengo", ##laikago##}
 algo: 'PPO'                  # {"PPO", "SAC", "TD3"}
 policy: 'MlpPolicy'
 device: "cpu"                # {"cpu", "cuda", "auto"}
-total_steps: 6144           # 参考2048*500 = 1,024,000 # n_step*num_update
+total_steps: 61440           # 参考2048*500 = 1,024,000 # n_step*num_update
 minibatch_size: 256          # PPOならミニバッチ、SAC/TD3なら replay の batch_size と揃えるなど
 
 # --- PPO で主に使う ---
@@ -55,8 +55,8 @@ torque_scale_Nm: 30.0        # [Nm] torque 時のスケール（クリップ上�
 reward_mode: "EnergeticProgress"      # {"Progress","EnergeticProgress"}
 norm_reward: False           # PPOのみ True で学習安定化するケースあり（基本 False）
 # 環境並列化
-multi_env: False
-num_envs: 5
+multi_env: True
+num_envs: 10
 
 # =========================
 # 評価
@@ -66,14 +66,15 @@ num_eval_envs: 10
 # =========================
 # カメラ設定
 # =========================
-make_video: False # 学習後に動画を出力する
+make_video: True # 学習後に動画を出力する
 video_record_mode: software   # auto|pybullet|software
-video_renderer: auto          # auto|opengl|tiny  ← software時のレンダラ選択
+video_renderer: auto          # auto|opengl|tiny  ← software時のレンダラ選択     
+video_overlay_support: True    
 video_fps: 60
 video_realtime: True
 video_size: [1280, 720]
 video_camera:                 # 省略可（未指定はPyBulletの現状値）
-  distance: 4     #1.8
+  distance: 1.8     #1.8   ,4
   yaw: 30.0
   pitch: -20.0
-  target: [8.0, 0.0, 0.25]
+  target: [0, 0.0, 0.25] # [8.0, 0.0, 0.25]

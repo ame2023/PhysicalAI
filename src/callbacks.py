@@ -70,10 +70,10 @@ class ManipLoggerCallback(BaseCallback):
                 "env": env_id,
                 "episode_id": int(self.episode_id[env_id]),
                 "t_in_episode": int(self.t_in_episode[env_id]),
-                "leg_0": float(w[0]) if w.size > 0 else np.nan,
-                "leg_1": float(w[1]) if w.size > 1 else np.nan,
-                "leg_2": float(w[2]) if w.size > 2 else np.nan,
-                "leg_3": float(w[3]) if w.size > 3 else np.nan,
+                "leg_FL": float(w[0]) if w.size > 0 else np.nan,
+                "leg_FR": float(w[1]) if w.size > 1 else np.nan,
+                "leg_RL": float(w[2]) if w.size > 2 else np.nan,
+                "leg_RR": float(w[3]) if w.size > 3 else np.nan,
             }
             self.rows.append(row)
 

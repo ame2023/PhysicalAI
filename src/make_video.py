@@ -11,6 +11,83 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize, VecMonit
 from src.models import ExtendModel
 
 
+# ---------- overlay helpers ----------
+def _draw_support_overlay(client_id: int, robot_id: int, leg_ee_link: dict, contacts: list | tuple):
+    """各足に縦線+ラベル（接地=緑/遊脚=赤）、支持多角形（水色）を描く。"""
+    try:
+        legs_order = ("FL", "FR", "RL", "RR")
+        # foot world positions
+        foot_pos = {}
+        for li, leg in enumerate(legs_order):
+            link_idx = leg_ee_link[leg]
+            st = p.getLinkState(robot_id, link_idx, physicsClientId=client_id)
+            foot_pos[leg] = tuple(st[0])  # world position
+
+        # draw vertical tick per foot
+        h = 0.06
+        for li, leg in enumerate(legs_order):
+            pos = foot_pos[leg]
+            col = (0,1,0) if (contacts[li] == 1) else (1,0,0)
+            p.addUserDebugLine(pos, (pos[0], pos[1], pos[2]+h), col, 3, lifeTime=0.15, physicsClientId=client_id)
+            p.addUserDebugText(leg, (pos[0], pos[1], pos[2]+h+0.02), col, textSize=1.2, lifeTime=0.15, physicsClientId=client_id)
+
+        # support polygon (connect in order if >=2 contacts)
+        supp_legs = [leg for li, leg in enumerate(legs_order) if contacts[li] == 1]
+        if len(supp_legs) >= 2:
+            pts = [foot_pos[leg] for leg in supp_legs]
+            for i in range(len(pts)-1):
+                p.addUserDebugLine(pts[i], pts[i+1], (0,1,1), 1, lifeTime=0.15, physicsClientId=client_id)
+            if len(pts) >= 3:
+                p.addUserDebugLine(pts[-1], pts[0], (0,1,1), 1, lifeTime=0.15, physicsClientId=client_id)
+    except Exception:
+        pass
+
+def _save_gait_timeline(out_dir: str, t_seq, contacts_seq):
+    """支持脚タイムライン画像（縦=脚, 横=時間, 色=支持期）とCSVを保存。"""
+    import numpy as _np
+    import matplotlib.pyplot as _plt
+    import pandas as _pd
+    os.makedirs(out_dir, exist_ok=True)
+    T = _np.asarray(t_seq, dtype=float)
+    C = _np.asarray(contacts_seq, dtype=int)  # [N, 4]
+    # CSV
+    _pd.DataFrame({"t": T, "FL": C[:,0], "FR": C[:,1], "RL": C[:,2], "RR": C[:,3]}).to_csv(
+        os.path.join(out_dir, "gait_contact.csv"), index=False)
+    # timeline figure
+    legs = ("FL","FR","RL","RR")
+    colors = {"FL": (1.0,0.2,0.2), "FR": (0.85,0.8,0.15), "RL": (0.2,0.4,1.0), "RR": (0.1,0.6,0.1)}
+    light = {"FL": (1.0,0.8,0.8), "FR": (0.98,0.97,0.85), "RL": (0.85,0.9,1.0), "RR": (0.85,0.95,0.85)}
+    fig, ax = _plt.subplots(figsize=(8, 2.8))
+    height = 0.8
+    y0 = 0.0
+    for li, leg in enumerate(reversed(legs)):  # top→bottom: RR, RL, FR, FL
+        y = y0 + li*(height+0.4)
+        ax.add_patch(_plt.Rectangle((T[0], y), width=T[-1]-T[0], height=height,
+                                    facecolor=light[leg], edgecolor="none", alpha=1.0))
+        v = C[:, {"FL":0,"FR":1,"RL":2,"RR":3}[leg]]
+        intervals = []
+        on = False; t_start = None
+        for k in range(len(T)):
+            c = bool(v[k])
+            if (not on) and c:
+                on = True; t_start = T[k]
+            elif on and (not c):
+                on = False; intervals.append( (t_start, T[k]-t_start) )
+        if on:
+            intervals.append( (t_start, T[-1]-t_start) )
+        if intervals:
+            ax.broken_barh(intervals, (y, height), facecolors=colors[leg])
+        ax.text(T[0]-0.02*(T[-1]-T[0]) if T[-1]>T[0] else T[0]-0.1, y+height*0.5, leg,
+                va="center", ha="right", fontsize=11)
+    ax.set_ylim(-0.2, y+height+0.2)
+    ax.set_xlim(T[0], T[-1])
+    ax.set_xlabel("Time [s]")
+    ax.set_yticks([])
+    ax.set_title("Gait Stance Timeline")
+    _plt.tight_layout()
+    fig.savefig(os.path.join(out_dir, "gait_timeline.png"), dpi=180)
+    _plt.close(fig)
+
 class VideoRecorder:
     """PyBullet の mp4 録画ユーティリティ（ffmpeg 必須・GUI）。"""
     def __init__(self, env: Optional[Any] = None, out_path: str = "episode.mp4",
@@ -398,6 +475,9 @@ def run_best_model_test(logdir: str, cfg, video_enable: bool | None = None) -> N
     acc = 0.0
 
     manip_seq = []        # [T, 4]
+    contacts_seq = []     # [T, 4] 0/1
+    t_seq = []            # [T]
+    t_cur = 0.0
     ep_steps, ep_ret = 0, 0.0
     done_flag = False
 
@@ -436,6 +516,38 @@ def run_best_model_test(logdir: str, cfg, video_enable: bool | None = None) -> N
             # 実時間同期（video_enable=True のときのみ）
             if realtime_effective:
                 time.sleep(max(0.0, (1.0 / target_fps) * 0.98))
+
+            # 足裏接地の可視化（cfg.video_overlay_support が True のとき）
+            try:
+                overlay_on = True if not hasattr(cfg, "video_overlay_support") else bool(cfg.video_overlay_support)
+            except Exception:
+                overlay_on = True
+            if overlay_on:
+                # unwrap base env to access robot/link ids
+                base_env = getattr(test_env, "envs", [test_env])[0]
+                while hasattr(base_env, "env"):
+                    base_env = base_env.env
+                if hasattr(base_env, "_cid") and hasattr(base_env, "_robot") and hasattr(base_env, "leg_ee_link"):
+                    cid = int(getattr(base_env, "_cid"))
+                    rid = int(getattr(base_env, "_robot"))
+                    contacts = info0.get("foot_contact", None)
+                    if contacts is not None:
+                        try:
+                            contacts = list(contacts)
+                        except Exception:
+                            contacts = [int(bool(contacts))] * 4
+                        # ↓支持脚と遊脚の動画内で可視化（使用するためにはffmpegのインストールが必要）
+                        #_draw_support_overlay(cid, rid, base_env.leg_ee_link, contacts)
+
+            # 接地ログ保存
+            try:
+                contacts_seq.append([int(contacts[0]), int(contacts[1]), int(contacts[2]), int(contacts[3])])
+                t_seq.append(t_cur)
+            except Exception:
+                pass
+
+            # 時間更新
+            t_cur += float(dt)
 
         # 終了時に保険で1枚
         if video_enable and use_software:
@@ -486,3 +598,7 @@ def run_best_model_test(logdir: str, cfg, video_enable: bool | None = None) -> N
             plt.savefig(os.path.join(test_dir, f"manip_{name}.png"))
             plt.close()
         np.save(os.path.join(test_dir, "manip_series.npy"), M)
+
+    # --- 支持脚タイムラインの保存 --- 
+    if len(contacts_seq) > 0:
+        _save_gait_timeline(test_dir, t_seq, contacts_seq)
