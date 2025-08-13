@@ -60,6 +60,9 @@ def main(cfg:DictConfig):
                       action_scale_deg=cfg_dict["action_scale_deg"],
                       control_mode=cfg_dict["control_mode"],
                       torque_scale_Nm=cfg_dict["torque_scale_Nm"],
+                      Kp = cfg_dict["Kp"],
+                      Kd=cfg_dict["Kd"],
+                      target_vx=cfg_dict["target_vx"],
                       reward_mode=cfg_dict["reward_mode"],
                       calculate_manip = cfg_dict["calculate_manip"] or cfg_dict["use_manip_loss"]
                       )
@@ -88,10 +91,13 @@ def main(cfg:DictConfig):
                       max_steps_per_episode=cfg.max_steps_per_episode,
                       fall_height_th = cfg.fall_height_th,  
                       fall_angle_th = cfg.fall_angle_th,
-                      obs_mode = cfg.obs_mode,        # 観測データの種類を指定
+                      obs_mode = cfg.obs_mode,                 # 観測データの種類を指定
                       action_scale_deg = cfg.action_scale_deg, # [deg] アクションのスケールを指定
-                      control_mode = cfg.control_mode, # 制御方法を指定 PDcontrol or torque
-                      torque_scale_Nm = cfg.torque_scale_Nm,  # [Nm] トルクのスケールを指定
+                      control_mode = cfg.control_mode,         # 制御方法を指定 PDcontrol or torque
+                      torque_scale_Nm = cfg.torque_scale_Nm,   # [Nm] トルクのスケールを指定
+                      Kp=cfg.Kp,
+                      Kd=cfg.Kd,
+                      target_vx=cfg.target_vx,
                       reward_mode = cfg.reward_mode,
                       calculate_manip = (cfg.calculate_manip or cfg.use_manip_loss),
                       )

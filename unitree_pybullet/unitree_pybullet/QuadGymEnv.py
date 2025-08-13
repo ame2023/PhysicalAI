@@ -73,6 +73,9 @@ class QuadEnv(gym.Env):
                  action_scale_deg: float = 45.0, # [deg] アクションのスケールを指定
                  control_mode: str = "PDcontrol", # 制御方法を指定 PDcontrol or torque
                  torque_scale_Nm: float = 60.0,  # [Nm] トルクのスケールを指定
+                 Kp: float = 50.0,
+                 Kd: float = 1.0,
+                 target_vx: float = 1.0,
                  reward_mode: str = 'Progress',
                  calculate_manip: bool = True,
                  ):
@@ -103,6 +106,11 @@ class QuadEnv(gym.Env):
         # 行動出力の指定
         self._action_scale_rad = np.deg2rad(action_scale_deg) # deg -> rad
         self.torque_scale = torque_scale_Nm
+        # ゲインの指定
+        self.Kp = Kp
+        self.Kd = Kd
+        # 目標速度の指定
+        self.target_vx = target_vx
         # 報酬関数の指定
         self.reward_mode = reward_mode 
         # 可操作度計算のフラグ
@@ -121,9 +129,6 @@ class QuadEnv(gym.Env):
 
         self.dt = 1.0 / 400.0 # シミュレーションの1stepあたりの経過時間
         self._prev_action = np.zeros(self.num_joint, dtype=np.float32)
-        # PDゲイン
-        self.Kp = 50.0
-        self.Kd = 1
 
         
         self.fall_penalty = 0 # 転倒時のペナルティ
@@ -468,7 +473,7 @@ class QuadEnv(gym.Env):
     def _reward(self, obs: np.ndarray, action: np.ndarray) -> float:
         if self.reward_mode == "Progress":
             vx, vy = obs[31], obs[32]
-            target_vx, target_vy = 0.8, 0.0 #[m/s]
+            target_vx, target_vy = self.target_vx, 0.0 #[m/s]
             sigma_v = 0.25
             v_err_sq = (vx - target_vx) ** 2 + (vy - target_vy) ** 2
             return float(np.exp(-v_err_sq / sigma_v))
@@ -479,7 +484,7 @@ class QuadEnv(gym.Env):
             """
             # 速度項
             vx, vy = obs[31], obs[32]
-            target_vx, target_vy = 1.0, 0.0 #[m/s]
+            target_vx, target_vy = self.target_vx, 0.0 #[m/s]
             sigma_v = 0.25
             v_err_sq = (vx - target_vx) ** 2 + (vy - target_vy) ** 2
             R_v = np.exp(-v_err_sq / sigma_v)

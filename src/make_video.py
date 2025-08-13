@@ -397,6 +397,9 @@ def run_best_model_test(logdir: str, cfg, video_enable: bool | None = None) -> N
         action_scale_deg=cfg.action_scale_deg,
         control_mode=cfg.control_mode,
         torque_scale_Nm=cfg.torque_scale_Nm,
+        Kp=cfg.Kp,
+        Kd=cfg.Kd,
+        target_vx=cfg.target_vx,
         reward_mode=cfg.reward_mode,
         calculate_manip=True,        # ★ config に依らず可操作度を計算
     )

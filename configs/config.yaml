@@ -50,8 +50,11 @@ fall_height_th: 0.20         # [m] 胴体の高さが 0.20m 以下で転倒判�
 fall_angle_th: 1.0           # [rad] |roll| or |pitch| > 1.0rad (~60deg) で転倒判定
 obs_mode: "joint+base"         # {"joint","joint+base","nonManip","full"}
 control_mode: "PDcontrol"    # {"PDcontrol","torque"}
-action_scale_deg: 90        # [deg] PDcontrol 時の ±スケール
+action_scale_deg: 90         # [deg] PDcontrol 時の ±スケール
 torque_scale_Nm: 30.0        # [Nm] torque 時のスケール（クリップ上限）
+Kp: 50                       # Pゲイン
+Kd: 1.0                      # Dゲイン
+target_vx : 1.0              # [m/s] 目標前進速度
 reward_mode: "EnergeticProgress"      # {"Progress","EnergeticProgress"}
 norm_reward: False           # PPOのみ True で学習安定化するケースあり（基本 False）
 # 環境並列化
