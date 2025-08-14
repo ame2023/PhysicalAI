@@ -58,7 +58,7 @@ target_vx : 1.0              # [m/s] 目標前進速度
 reward_mode: "EnergeticProgress"      # {"Progress","EnergeticProgress"}
 norm_reward: False           # PPOのみ True で学習安定化するケースあり（基本 False）
 # 環境並列化
-multi_env: True
+multi_env: False
 num_envs: 10
 
 # =========================

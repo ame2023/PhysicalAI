@@ -85,6 +85,9 @@ class ManipulabilityLossMixin:
             raise ValueError(f"Unknown manip_agg: {self.manip_agg}")
 
     def _manip_loss_from_batch(self, manip_w: Optional[th.Tensor]) -> th.Tensor:
+        """
+        可操作度ロスの計算
+        """
         if (not self.use_manip_loss) or (manip_w is None):
             return th.zeros((), device=self.device)
 

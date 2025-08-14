@@ -185,12 +185,85 @@ class QuadEnv(gym.Env):
         # 代わりに以下:
         p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)   # GUI無効なら無視される
         # ---------------------------------------------------------------
+        use_heightfield = False
+        if not use_heightfield:
+            self._plane = p.loadURDF(plane_path, physicsClientId=self._cid)
+        else:
+            # 凸凹地形（ハイトフィールド）
+            """
+            まずは ground1.txt を使うのがおすすめです（起伏が大きすぎず扱いやすい）。
+            強い起伏を試すなら ground0.txt、パターンが局所的にフラットな帯を含むものを試すなら ground2.txt。
+            ground0.txt :値域が大きく（-5 付近まで落ちるサンプルが多数）、起伏が強め。
+            ground1.txt :負値主体だが 0 がパッチ状に並ぶ列もあり（なだらかな領域が混在）、まずはこれが扱いやすい
+            ground2.txt :似たスケールで 0 帯が入る行があり、帯状の遷移が出やすい地形
+            """
+            import csv, re  # ← ファイル先頭のimport群に追加してOK
 
-        self._plane = p.loadURDF(plane_path, physicsClientId=self._cid)
+            ground_path = os.path.join(data_dir, "heightmaps/ground0.txt")
+
+            # --- ロバストCSV読込: 余分なカンマ/欠損列に耐性 ---
+            rows_list = []
+            with open(ground_path, "r") as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    # 行末の空要素（''）を捨てる
+                    vals = [v for v in row if v.strip() != ""]
+                    if not vals:
+                        continue
+                    try:
+                        rows_list.append([float(v) for v in vals])
+                    except ValueError:
+                        # もしカンマと空白が混在していたら正規表現で再分割
+                        toks = [t for t in re.split(r"[,\s]+", " ".join(row)) if t != ""]
+                        rows_list.append([float(t) for t in toks])
+
+            # 全行の最小列数に合わせて切り詰め、長方配列にする
+            min_cols = min(len(r) for r in rows_list)
+            rows_list = [r[:min_cols] for r in rows_list]
+
+            H = np.array(rows_list, dtype=np.float32)
+            rows, cols = H.shape
+
+            # PyBullet用: C連続float32の1D
+            H_flat = np.ascontiguousarray(H.ravel(order="C"), dtype=np.float32)
+
+            sx = sy = 0.05
+            z_scale = 0.05   # 見た目の凹凸を確実にするなら 0.3〜0.6
+
+            # 最低高度を原点に合わせるオフセット
+            base_z = -float(H.min()) * z_scale
+
+            col_id = p.createCollisionShape(
+                shapeType=p.GEOM_HEIGHTFIELD,         # 地形の形状を指定
+                meshScale=[sx, sy, z_scale],          # メッシュのスケール[x,y,z]
+                heightfieldData=H_flat, # 地形データを設定(各ポイントの高さ情報を持つリスト)
+                numHeightfieldRows=rows,              # 地形データの行数を設定
+                numHeightfieldColumns=cols,           # 地形データの列数を設定
+                physicsClientId=self._cid
+            )
+            # 重要：最低高度を 0 に合わせる（沈み込み防止）
+            base_z = -float(H.min()) * z_scale
+            terrain_id = p.createMultiBody(
+                baseMass=0,
+                baseCollisionShapeIndex=col_id,
+                basePosition=[0, 0, base_z],
+                baseOrientation=[0, 0, 0, 1],
+                physicsClientId=self._cid
+            )
+            
+            p.changeDynamics(terrain_id, -1, lateralFriction=1.0, spinningFriction=0.02,
+                            restitution=0.0, physicsClientId=self._cid)
+
+            aabb_min, aabb_max = p.getAABB(terrain_id, physicsClientId=self._cid)
+            print(f"[HF] AABB z-range = {aabb_min[2]:.3f} .. {aabb_max[2]:.3f}  (期待: ≈0 .. {z_scale})")
+
+            self._plane = terrain_id
+
+
         if self.model_name == "a1":
             self._robot = p.loadURDF(
                 robot_path,
-                [0, 0, 0.31],
+                [0, 0, 0.31],#0.31, 0.7
                 useFixedBase=False,
                 flags=p.URDF_USE_SELF_COLLISION,
                 physicsClientId=self._cid,
