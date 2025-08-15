@@ -39,8 +39,12 @@ class QuadEnv(gym.Env):
     render : bool, default False
         If True, connect in GUI mode; otherwise DIRECT.
 
-    obs_mode : {"joint", "joint+base", "full"}, default "joint"
-        "full" は base 状態 + 直前トルク τ_{t-1} も含む（49 次元）
+    obs_mode : {"joint", "joint+base", "nonManip", "full"}, default "full"
+        "joint"      : 関節角(12) + 関節角速度(12) = 24 次元
+        "joint+base" : 上 + ベース位置(3)+姿勢(q4)+線速度(3)+角速度(3) = 37 次元
+        "nonManip"   : 上 + 直前トルク(12) = 49 次元（可操作度は観測に含めない）
+        "full"       : 上 + 可操作度(4) = 53 次元
+
     
     control_mode : {"PDcontrol", "torque"}, default "PDcontrol"
         "torque" を選ぶと action は正規化トルク指令（±torque_scale_Nm）
@@ -401,7 +405,7 @@ class QuadEnv(gym.Env):
                 self._cid)
 
         obs = self._get_obs(manip_cached=m4)
-        reward = self._reward(obs, action)
+        reward = self._reward(obs, action, manip_cached=m4)
 
         # 転倒時のペナルティ        
         fallen = self._robot_fallen()
@@ -538,29 +542,27 @@ class QuadEnv(gym.Env):
                         self._cid)
             else:
                 m4 = manip_cached
+
             obs += list(m4)
 
         return np.array(obs, dtype=np.float32)
     
     # ------ 報酬定義 ---------------------------------------------------------
-    def _reward(self, obs: np.ndarray, action: np.ndarray) -> float:
+    def _reward(self, obs: np.ndarray, action: np.ndarray, manip_cached: Optional[np.ndarray] = None) -> float:
+        vx, vy = obs[31], obs[32]
+        target_vx, target_vy = self.target_vx, 0.0 #[m/s]
+        sigma_v = 0.25
+        v_err_sq = (vx - target_vx) ** 2 + (vy - target_vy) ** 2
+        # 速度項
+        R_v = np.exp(-v_err_sq / sigma_v)
+
         if self.reward_mode == "Progress":
-            vx, vy = obs[31], obs[32]
-            target_vx, target_vy = self.target_vx, 0.0 #[m/s]
-            sigma_v = 0.25
-            v_err_sq = (vx - target_vx) ** 2 + (vy - target_vy) ** 2
-            return float(np.exp(-v_err_sq / sigma_v))
+            return R_v
 
         elif self.reward_mode == "EnergeticProgress":
             """
             報酬関数の設計
             """
-            # 速度項
-            vx, vy = obs[31], obs[32]
-            target_vx, target_vy = self.target_vx, 0.0 #[m/s]
-            sigma_v = 0.25
-            v_err_sq = (vx - target_vx) ** 2 + (vy - target_vy) ** 2
-            R_v = np.exp(-v_err_sq / sigma_v)
             # yaw方向の回転を抑制
             omega_yaw = obs[36]
             sigma_yaw = 0.25
@@ -580,10 +582,22 @@ class QuadEnv(gym.Env):
             alpha_ang = 0.5
             R_motion = R_v + alpha_ang*R_ang
             return float(R_motion +R_en)
-
-        # fallback: joint-angle penalty
-        q = obs[:12]
-        return -float(np.sum(q ** 2))
+        elif self.reward_mode == "ManipProgress":
+            if manip_cached is None:# すでに計算されている場合は再利用（キャッシュに無ければ計算）
+                manip_cached = mu.compute_leg_manipulability(
+                        self._robot, self.leg_joints,
+                        self.leg_ee_link,
+                        self._cid)
+            alpha_m4 = 1.0
+            mean_manip = float(np.min(np.clip(manip_cached, 0.0, np.inf))) # minで最も低い可操作度を報酬とし、最大化を狙う(meanなどでもOK) 
+            return float(R_v + alpha_m4 * mean_manip)
+        
+        
+        else:
+            # fallback: joint-angle penalty
+            q = obs[:12]
+            print("=== Please check the reward_mode ===")
+            return -float(np.sum(q ** 2))
 
 
     # ---- 転倒の定義 ----------------------------------------------------
